@@ -747,7 +747,8 @@ const Room = (() => {
     for (const k of grid.target) {
       const [x, y] = k.split(',').map(Number);
       const cx = grid.x + (x + 0.5) * cs, cy = grid.y + (y + 0.5) * cs;
-      ctx.fillStyle = rad(ctx, cx - cs * 0.1, cy - cs * 0.12, 0, cs * 0.62, [[0, 'rgba(255,255,255,0.5)'], [0.5, 'rgba(255,255,255,0.12)'], [1, rgba(col.border, 0.16)]]);
+      // straal tot voorbij de hoeken van het vakje: buiten de buitencirkel tekent Chrome anders zwart
+      ctx.fillStyle = rad(ctx, cx - cs * 0.1, cy - cs * 0.12, 0, cs * 0.9, [[0, 'rgba(255,255,255,0.5)'], [0.45, 'rgba(255,255,255,0.12)'], [0.8, rgba(col.border, 0.16)], [1, rgba(col.border, 0.16)]]);
       ctx.fillRect(cx - cs / 2, cy - cs / 2, cs, cs);
     }
     grain(ctx, grid.x, grid.y, grid.cols * cs, grid.rows * cs, 0.28);
