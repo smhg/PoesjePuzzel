@@ -228,6 +228,7 @@ class Cat {
     a.headDx = lerp(a.headDx, clamp(-this.vel.x * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.headDy = lerp(a.headDy, clamp(-this.vel.y * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.wag = lerp(a.wag, clamp(speed / 600, 0, 1), Math.min(1, dt * 4));
+    a.tailPhase += dt * (1.3 + a.wag * 1.4 + (this.held ? 0.5 : 0)) * (this.state === 'sleeping' ? 0.35 : 1);
 
     // veertje voor het pletten/stuiteren
     a.squashV += (-a.squash * 160 - a.squashV * 8) * dt;
@@ -335,22 +336,66 @@ class Cat {
     const cs = this.cs, a = this.anim, col = this.color;
     const tc = this.cellCenter(this.cells[this.tailIdx]);
     const d = this.tailDir, p = { x: -d.y, y: d.x };
-    const sway = Math.sin(t * (2.2 + a.wag * 6) + a.tailPhase) * (0.35 + a.wag * 0.6 + (this.state === 'held' ? 0.3 : 0));
-    const base = { x: tc.x + d.x * cs * 0.32, y: tc.y + d.y * cs * 0.32 };
-    const ctrl = { x: base.x + d.x * cs * 0.55 - p.x * sway * cs * 0.35, y: base.y + d.y * cs * 0.55 - p.y * sway * cs * 0.35 };
-    const end = { x: base.x + d.x * cs * 0.8 + p.x * sway * cs * 0.75, y: base.y + d.y * cs * 0.8 + p.y * sway * cs * 0.75 };
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.beginPath(); ctx.moveTo(base.x, base.y); ctx.quadraticCurveTo(ctrl.x, ctrl.y, end.x, end.y);
-    ctx.lineWidth = cs * 0.24; ctx.strokeStyle = rgba(col.dark, 0.5); ctx.stroke();
-    ctx.lineWidth = cs * 0.19; ctx.strokeStyle = col.base; ctx.stroke();
-    // lichte bovenkant
-    ctx.lineWidth = cs * 0.07; ctx.strokeStyle = rgba(col.light, 0.5);
-    ctx.beginPath(); ctx.moveTo(base.x - p.x * cs * 0.03, base.y - p.y * cs * 0.03 - cs * 0.03);
-    ctx.quadraticCurveTo(ctrl.x, ctrl.y - cs * 0.04, end.x, end.y - cs * 0.04); ctx.stroke();
+    const sleeping = this.state === 'sleeping';
+    const amp = sleeping ? 0.25 : 0.55 + a.wag * 0.2 + (this.state === 'held' ? 0.1 : 0);
+    const sway = Math.sin(a.tailPhase) * amp + (sleeping ? 0.5 : 0);
+    // de staart sleept een beetje achter de beweging aan
+    const lagX = clamp(-this.vel.x * 0.05, -cs * 0.45, cs * 0.45);
+    const lagY = clamp(-this.vel.y * 0.05, -cs * 0.45, cs * 0.45);
+    const L = cs * 1.2;
+    const base = { x: tc.x + d.x * cs * 0.28, y: tc.y + d.y * cs * 0.28 };
+    const c1 = { x: base.x + d.x * L * 0.42 + p.x * sway * L * 0.08 + lagX * 0.2, y: base.y + d.y * L * 0.42 + p.y * sway * L * 0.08 + lagY * 0.2 };
+    const c2 = { x: base.x + d.x * L * 0.78 + p.x * sway * L * 0.5 + lagX * 0.6, y: base.y + d.y * L * 0.78 + p.y * sway * L * 0.5 + lagY * 0.6 };
+    const end = { x: base.x + d.x * L * 0.66 + p.x * sway * L * 0.95 + lagX, y: base.y + d.y * L * 0.66 + p.y * sway * L * 0.95 + lagY };
+    const N = 16, pts = [];
+    for (let i = 0; i <= N; i++) {
+      const u = i / N, v = 1 - u;
+      pts.push({
+        x: v * v * v * base.x + 3 * v * v * u * c1.x + 3 * v * u * u * c2.x + u * u * u * end.x,
+        y: v * v * v * base.y + 3 * v * v * u * c1.y + 3 * v * u * u * c2.y + u * u * u * end.y,
+        w: cs * (0.105 - 0.05 * u),
+      });
+    }
+    const left = [], right = [];
+    for (let i = 0; i <= N; i++) {
+      const q = pts[Math.min(i + 1, N)], o = pts[Math.max(i - 1, 0)];
+      let nx = -(q.y - o.y), ny = q.x - o.x; const len = Math.hypot(nx, ny) || 1; nx /= len; ny /= len;
+      left.push({ x: pts[i].x + nx * pts[i].w, y: pts[i].y + ny * pts[i].w });
+      right.push({ x: pts[i].x - nx * pts[i].w, y: pts[i].y - ny * pts[i].w });
+    }
+    const tip = pts[N], tipW = tip.w;
+    const tracePoly = () => {
+      ctx.beginPath();
+      ctx.moveTo(left[0].x, left[0].y);
+      for (let i = 1; i <= N; i++) ctx.lineTo(left[i].x, left[i].y);
+      ctx.arc(tip.x, tip.y, tipW, Math.atan2(left[N].y - tip.y, left[N].x - tip.x), Math.atan2(right[N].y - tip.y, right[N].x - tip.x), true);
+      for (let i = N; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
+      ctx.closePath();
+    };
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    tracePoly();
+    ctx.lineWidth = 3; ctx.strokeStyle = rgba(col.dark, 0.5); ctx.stroke();
+    ctx.fillStyle = col.base; ctx.fill();
+    ctx.save(); ctx.clip();
+    // schaduwkant en lichtkant
+    ctx.lineWidth = cs * 0.06; ctx.strokeStyle = rgba(col.dark, 0.22);
+    ctx.beginPath(); ctx.moveTo(right[0].x, right[0].y); for (let i = 1; i <= N; i++) ctx.lineTo(right[i].x, right[i].y); ctx.stroke();
+    ctx.lineWidth = cs * 0.045; ctx.strokeStyle = rgba(col.light, 0.55);
+    ctx.beginPath(); ctx.moveTo((pts[0].x + left[0].x) / 2, (pts[0].y + left[0].y) / 2);
+    for (let i = 1; i <= N; i++) ctx.lineTo((pts[i].x + left[i].x) / 2, (pts[i].y + left[i].y) / 2); ctx.stroke();
+    if (col.pattern === 'tabby') {
+      ctx.strokeStyle = rgba(col.dark, 0.45);
+      [0.35, 0.55, 0.75].forEach(u => {
+        const i = Math.round(u * N); ctx.lineWidth = pts[i].w * 0.5;
+        ctx.beginPath(); ctx.moveTo(left[i].x, left[i].y); ctx.lineTo(right[i].x, right[i].y); ctx.stroke();
+      });
+    }
     // puntje
     const tipCol = col.pattern === 'siamese' ? col.dark : (col.pattern === 'tuxedo' || col.pattern === 'calico' ? '#fff8f0' : col.light);
-    ctx.fillStyle = tipCol;
-    ctx.beginPath(); ctx.arc(end.x, end.y, cs * 0.1, 0, Math.PI * 2); ctx.fill();
+    const tg = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, tipW * 3);
+    tg.addColorStop(0, tipCol); tg.addColorStop(0.6, tipCol); tg.addColorStop(1, rgba(col.base, 0));
+    ctx.fillStyle = tg; ctx.fillRect(tip.x - tipW * 3, tip.y - tipW * 3, tipW * 6, tipW * 6);
+    ctx.restore();
   }
 
   drawBody(ctx) {

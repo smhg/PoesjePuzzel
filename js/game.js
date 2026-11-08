@@ -62,7 +62,7 @@
     walkTimer = rnd(45, 80);
     held = null;
     levelEl.textContent = `Puzzel ${i + 1} · ${L.name}`;
-    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i === 1 ? 'Klik op een poesje om het te draaien' : '';
+    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i <= 2 ? 'Klik op een poesje (zonder slepen) om het te draaien ↻' : '';
     if (started) { showHint(pendingHint, 9); pendingHint = ''; }
   }
 
@@ -239,6 +239,7 @@
     if (Math.random() < 0.6) Sound.mrrp(cat.pitch, 'hi');
     const hp = cat.headPos(); burst(hp.x, hp.y - 20, 2, 'heart');
     canvas.style.cursor = 'grabbing';
+    if (levelIdx < 4) showHint('Draaien: klik zonder slepen, scroll, of rechtermuisknop ↻', 5);
   }
   function rotateHeld() {
     if (!held) return;
@@ -272,7 +273,7 @@
     Sound.ensure();
     const p = toLogical(e);
     const cat = topCatAt(p);
-    if (cat && !held) { canvas.setPointerCapture(e.pointerId); pickUp(cat, p); }
+    if (cat && !held) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
   });
   canvas.addEventListener('pointermove', e => {
     const p = toLogical(e);
@@ -294,6 +295,7 @@
     if (now - wheelCooldown > 180) { wheelCooldown = now; rotateHeld(); moved = true; }
   }, { passive: false });
   window.addEventListener('keydown', e => {
+    if ((e.key === ' ' || e.key === 'Enter') && !overlay.classList.contains('hidden')) { e.preventDefault(); btnStart.click(); return; }
     if ((e.key === ' ' || e.key.toLowerCase() === 'r') && held) { e.preventDefault(); rotateHeld(); moved = true; }
   });
 
@@ -357,6 +359,7 @@
           'Prrr... wat een fijn kleedje.',
         ]);
         btnStart.textContent = 'Volgende puzzel 🐾';
+        overlay.style.display = '';
         overlay.classList.remove('hidden');
       }
     }
@@ -397,10 +400,10 @@
   const params = new URLSearchParams(location.search);
   levelIdx = Math.max(0, (parseInt(params.get('level'), 10) || 1) - 1);
   loadLevel(levelIdx);
+  if (params.has('debug')) window.PP = { cats: () => cats, held: () => held, grid: () => grid };
   if (params.has('nosplash')) {
     started = true;
-    overlay.style.transition = 'none'; overlay.classList.add('hidden');
-    requestAnimationFrame(() => { overlay.style.transition = ''; });
+    overlay.style.display = 'none'; overlay.classList.add('hidden');
   }
   requestAnimationFrame(frame);
 })();

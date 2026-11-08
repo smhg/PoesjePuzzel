@@ -101,7 +101,8 @@ button:active { transform: translateY(0.15em); box-shadow: 0 0.1em 0 #d9a9a4; }
   backdrop-filter: blur(2px);
   transition: opacity 0.5s ease;
 }
-#overlay.hidden { opacity: 0; pointer-events: none; }
+#overlay.hidden { opacity: 0; pointer-events: none; visibility: hidden; transition: opacity 0.5s ease, visibility 0s linear 0.5s; }
+#overlay.hidden * { pointer-events: none; }
 #overlay.splash {
   background: radial-gradient(ellipse at 50% 40%, rgba(255, 220, 215, 0.35), rgba(80, 50, 65, 0.45));
   backdrop-filter: blur(5px);

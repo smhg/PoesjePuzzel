@@ -169,49 +169,54 @@ const Sound = (() => {
   }
 
   // --- Zachte achtergrondmuziek --------------------------------------------
-  const CHORDS = [
-    [130.81, 196.00, 246.94, 329.63],   // Cmaj7
-    [110.00, 164.81, 220.00, 261.63],   // Am7
-    [87.31, 130.81, 174.61, 220.00],    // Fmaj7
-    [98.00, 146.83, 196.00, 246.94],    // G6
+  // Warme majeurakkoorden met een zacht speeldoosje erbovenop: rustig, maar niet droevig.
+  const BARS = [
+    { pad: [261.63, 329.63, 392.00, 587.33], arp: [523.25, 659.25, 783.99, 1174.66, 1046.50] }, // Cadd9
+    { pad: [349.23, 440.00, 523.25, 659.25], arp: [698.46, 880.00, 1046.50, 1318.51, 1174.66] }, // Fmaj7
+    { pad: [261.63, 392.00, 440.00, 659.25], arp: [523.25, 783.99, 880.00, 1318.51, 1046.50] }, // C6/9
+    { pad: [392.00, 493.88, 587.33, 659.25], arp: [783.99, 987.77, 1174.66, 1318.51, 1046.50] }, // G6
   ];
-  const PENTA = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.5];
+  const BAR_LEN = 7.2, STEP = 0.6;
+  const PATTERN = [0, -1, 1, 2, -1, 3, -1, 2, 1, -1, 4, -1];
+  function bell(hz, t0, vol) {
+    const g = gain(0.0001, master);
+    const o = osc('sine', hz, g);
+    const o2 = osc('sine', hz * 3); const g2 = gain(0.06, g); o2.connect(g2);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.5);
+    [o, o2].forEach(n => { n.start(t0); n.stop(t0 + 1.6); });
+  }
   function ambientStart() {
     if (!ensure() || ambient) return;
     const out = gain(0.0001, master);
-    const lp = filter('lowpass', 520, 0.6, out);
-    const voices = CHORDS[0].map(hz => {
-      const g = gain(0.045, lp);
+    const lp = filter('lowpass', 900, 0.5, out);
+    const voices = BARS[0].pad.map(hz => {
+      const g = gain(0.028, lp);
       const a = osc('triangle', hz, g);
-      const b = osc('sine', hz * 1.003); const bg = gain(0.5, g); b.connect(bg);
+      const b = osc('sine', hz * 1.002); const bg = gain(0.6, g); b.connect(bg);
       a.start(); b.start();
       return { a, b };
     });
     out.gain.exponentialRampToValueAtTime(1, now() + 4);
-    let ci = 0;
-    const chordTimer = setInterval(() => {
-      ci = (ci + 1) % CHORDS.length;
-      const t = now();
-      CHORDS[ci].forEach((hz, i) => {
-        voices[i].a.frequency.exponentialRampToValueAtTime(hz, t + 2.5);
-        voices[i].b.frequency.exponentialRampToValueAtTime(hz * 1.003, t + 2.5);
+    let bar = 0;
+    const playBar = () => {
+      const t0 = now() + 0.1;
+      const B = BARS[bar];
+      B.pad.forEach((hz, i) => {
+        voices[i].a.frequency.exponentialRampToValueAtTime(hz, t0 + 1.8);
+        voices[i].b.frequency.exponentialRampToValueAtTime(hz * 1.002, t0 + 1.8);
       });
-    }, 9000);
-    let melodyTimer = null;
-    const melody = () => {
-      const t = now();
-      const hz = PENTA[Math.floor(Math.random() * PENTA.length)];
-      const g = gain(0.0001, master);
-      const o = osc('sine', hz, g);
-      const o2 = osc('sine', hz * 2); const g2 = gain(0.15, g); o2.connect(g2);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
-      [o, o2].forEach(n => { n.start(t); n.stop(t + 2.3); });
-      melodyTimer = setTimeout(melody, 2500 + Math.random() * 4500);
+      PATTERN.forEach((idx, k) => {
+        if (idx < 0 || Math.random() < 0.15) return;
+        const hz = Math.random() < 0.12 ? B.arp[Math.floor(Math.random() * B.arp.length)] : B.arp[idx];
+        bell(hz, t0 + k * STEP, 0.03 + Math.random() * 0.015);
+      });
+      bar = (bar + 1) % BARS.length;
     };
-    melodyTimer = setTimeout(melody, 3000);
-    ambient = { out, chordTimer, stop: () => { clearInterval(chordTimer); clearTimeout(melodyTimer); } };
+    playBar();
+    const barTimer = setInterval(playBar, BAR_LEN * 1000);
+    ambient = { out, stop: () => clearInterval(barTimer) };
   }
 
   function setEnabled(on) {
