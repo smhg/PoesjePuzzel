@@ -207,7 +207,7 @@ class Cat {
     this.walkTarget = target; this.placed = false; this.idleTime = 0;
     this.state = withStretch ? 'stretching' : 'walking'; this.stateTime = 0;
   }
-  say(text, dur = 1.6) { this.bubble = { text, t: dur, max: dur }; }
+  say() { /* geen tekstwolkjes; de poezen laten alleen een geluidje horen */ }
   wake() {
     if (this.state === 'sleeping') { this.state = 'idle'; this.stateTime = 0; }
     this.idleTime = 0; this.sleepAfter = Levels.rnd(18, 45);
@@ -565,58 +565,60 @@ class Cat {
     ctx.beginPath(); ctx.ellipse(hx, hy, r * 1.06, r, 0, 0, Math.PI * 2); ctx.stroke();
 
     // wangetjes
-    ctx.fillStyle = 'rgba(240,120,140,0.22)';
-    [-1, 1].forEach(sgn => { ctx.beginPath(); ctx.ellipse(hx + sgn * r * 0.6, hy + r * 0.3, r * 0.2, r * 0.13, 0, 0, Math.PI * 2); ctx.fill(); });
+    ctx.fillStyle = 'rgba(243,120,145,0.28)';
+    [-1, 1].forEach(sgn => { ctx.beginPath(); ctx.ellipse(hx + sgn * r * 0.66, hy + r * 0.4, r * 0.22, r * 0.14, 0, 0, Math.PI * 2); ctx.fill(); });
 
-    // oogjes
+    // oogjes: groot, laag in het gezicht, met een lachend bovenooglid
     const sleeping = this.state === 'sleeping';
-    const ex = r * 0.4 + f.x * r * 0.04, ey = hy - r * 0.02 + f.y * r * 0.05;
+    const ex = r * 0.42 + f.x * r * 0.04, ey = hy + r * 0.06 + f.y * r * 0.05;
     const blink = sleeping ? 1 : a.blink;
     const openness = sleeping ? 0 : clamp(1 - Math.sin(blink * Math.PI) * 1.2, 0.05, 1);
     if (openness < 0.12) {
-      ctx.strokeStyle = rgba(headDark, 0.9); ctx.lineWidth = r * 0.08; ctx.lineCap = 'round';
+      ctx.strokeStyle = rgba(headDark, 0.9); ctx.lineWidth = r * 0.085; ctx.lineCap = 'round';
       [-1, 1].forEach(sgn => {
         ctx.beginPath();
-        if (sleeping) ctx.arc(hx + sgn * ex, ey + r * 0.08, r * 0.17, Math.PI * 1.15, Math.PI * 1.85);
-        else { ctx.moveTo(hx + sgn * ex - r * 0.16, ey); ctx.lineTo(hx + sgn * ex + r * 0.16, ey); }
+        ctx.arc(hx + sgn * ex, ey + r * 0.1, r * 0.18, Math.PI * 1.15, Math.PI * 1.85);
         ctx.stroke();
       });
     } else {
-      const er = r * 0.2 * (1 + a.lift * 0.12);
+      const er = r * 0.23 * (1 + a.lift * 0.1);
       const gaze = { x: f.x * r * 0.03 + clamp(this.vel.x * 0.00005, -0.03, 0.03) * r, y: f.y * r * 0.03 };
       [-1, 1].forEach(sgn => {
         const cx = hx + sgn * ex, cy = ey;
-        ctx.beginPath(); ctx.ellipse(cx, cy, er * 0.95, er * openness, 0, 0, Math.PI * 2);
-        ctx.fillStyle = col.eye; ctx.fill();
-        ctx.save(); ctx.clip();
-        const eg = ctx.createRadialGradient(cx, cy + er * 0.5, 0, cx, cy, er);
-        eg.addColorStop(0, 'rgba(255,255,255,0.35)'); eg.addColorStop(1, 'rgba(0,0,0,0.25)');
-        ctx.fillStyle = eg; ctx.fillRect(cx - er, cy - er, er * 2, er * 2);
+        const eh = er * openness;
+        ctx.save();
+        ctx.beginPath(); ctx.ellipse(cx, cy, er, eh, 0, 0, Math.PI * 2); ctx.clip();
+        ctx.fillStyle = col.eye; ctx.fillRect(cx - er, cy - eh, er * 2, eh * 2);
+        const eg = ctx.createRadialGradient(cx, cy + eh * 0.6, 0, cx, cy, er * 1.1);
+        eg.addColorStop(0, 'rgba(255,255,255,0.4)'); eg.addColorStop(1, 'rgba(0,0,0,0.3)');
+        ctx.fillStyle = eg; ctx.fillRect(cx - er, cy - eh, er * 2, eh * 2);
         ctx.fillStyle = '#2a2230';
-        ctx.beginPath(); ctx.ellipse(cx + gaze.x, cy + gaze.y, er * 0.52 * (1 + a.lift * 0.3), er * 0.85 * openness, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + gaze.x, cy + gaze.y + eh * 0.1, er * 0.62 * (1 + a.lift * 0.2), eh * 0.78, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.95)';
-        ctx.beginPath(); ctx.ellipse(cx - er * 0.3, cy - er * 0.35 * openness, er * 0.26, er * 0.3 * openness, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.ellipse(cx + er * 0.35, cy + er * 0.3 * openness, er * 0.12, er * 0.14 * openness, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx - er * 0.28, cy - eh * 0.1, er * 0.3, eh * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + er * 0.38, cy + eh * 0.42, er * 0.14, eh * 0.14, 0, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
-        ctx.lineWidth = 1.5; ctx.strokeStyle = rgba(headDark, 0.6);
-        ctx.beginPath(); ctx.ellipse(cx, cy, er * 0.95, er * openness, 0, 0, Math.PI * 2); ctx.stroke();
+        // randje
+        ctx.lineWidth = 1.5; ctx.strokeStyle = rgba(headDark, 0.55);
+        ctx.beginPath(); ctx.ellipse(cx, cy, er, eh, 0, 0, Math.PI * 2); ctx.stroke();
       });
     }
 
-    // neusje en mondje
-    const nx = hx + f.x * r * 0.04, ny = hy + r * 0.3;
+    // neusje en lachend mondje
+    const nx = hx + f.x * r * 0.04, ny = hy + r * 0.38;
     ctx.fillStyle = '#e88aa0';
     ctx.beginPath();
-    ctx.moveTo(nx - r * 0.11, ny - r * 0.05); ctx.lineTo(nx + r * 0.11, ny - r * 0.05);
-    ctx.quadraticCurveTo(nx + r * 0.06, ny + r * 0.1, nx, ny + r * 0.1);
-    ctx.quadraticCurveTo(nx - r * 0.06, ny + r * 0.1, nx - r * 0.11, ny - r * 0.05);
+    ctx.moveTo(nx - r * 0.1, ny - r * 0.05); ctx.lineTo(nx + r * 0.1, ny - r * 0.05);
+    ctx.quadraticCurveTo(nx + r * 0.06, ny + r * 0.09, nx, ny + r * 0.09);
+    ctx.quadraticCurveTo(nx - r * 0.06, ny + r * 0.09, nx - r * 0.1, ny - r * 0.05);
     ctx.fill();
-    ctx.strokeStyle = rgba(headDark, 0.8); ctx.lineWidth = r * 0.055; ctx.lineCap = 'round';
+    ctx.strokeStyle = rgba(headDark, 0.85); ctx.lineWidth = r * 0.06; ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(nx, ny + r * 0.1);
-    ctx.quadraticCurveTo(nx - r * 0.02, ny + r * 0.26, nx - r * 0.2, ny + r * 0.22);
-    ctx.moveTo(nx, ny + r * 0.1);
-    ctx.quadraticCurveTo(nx + r * 0.02, ny + r * 0.26, nx + r * 0.2, ny + r * 0.22);
+    ctx.moveTo(nx, ny + r * 0.09); ctx.lineTo(nx, ny + r * 0.17);
+    ctx.moveTo(nx, ny + r * 0.17);
+    ctx.quadraticCurveTo(nx - r * 0.12, ny + r * 0.34, nx - r * 0.28, ny + r * 0.2);
+    ctx.moveTo(nx, ny + r * 0.17);
+    ctx.quadraticCurveTo(nx + r * 0.12, ny + r * 0.34, nx + r * 0.28, ny + r * 0.2);
     ctx.stroke();
 
     // snorharen
@@ -625,8 +627,8 @@ class Cat {
     [-1, 1].forEach(sgn => {
       for (let k = -1; k <= 1; k++) {
         ctx.beginPath();
-        ctx.moveTo(hx + sgn * r * 0.45, ny + r * 0.05 + k * r * 0.08);
-        ctx.lineTo(hx + sgn * r * 1.25, ny - r * 0.05 + k * r * 0.22);
+        ctx.moveTo(hx + sgn * r * 0.45, ny - r * 0.02 + k * r * 0.08);
+        ctx.lineTo(hx + sgn * r * 1.25, ny - r * 0.12 + k * r * 0.22);
         ctx.stroke();
       }
     });

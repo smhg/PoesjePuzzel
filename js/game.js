@@ -15,6 +15,7 @@
   let scale = 1, dpr = 1, bg = null;
   let levelIdx = 0, cats = [], grid = null, carpetColor = 0;
   let held = null, grabOff = { x: 0, y: 0 }, dragStart = null, moved = false, lastP = { x: 640, y: 400 };
+  let downTime = 0, carried = false, lastKeyTime = -1e9;   // carried: poes wordt gedragen zonder de knop ingedrukt te houden
   let particles = [], motes = [];
   let complete = false, completeTimer = 0, walkTimer = 60, started = false;
   let lastT = 0, hintTimer = 0, wheelCooldown = 0, pendingHint = '';
@@ -62,7 +63,7 @@
     walkTimer = rnd(45, 80);
     held = null;
     levelEl.textContent = `Puzzel ${i + 1} · ${L.name}`;
-    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i <= 2 ? 'Draaien kan met de spatiebalk terwijl je sleept ↻' : '';
+    pendingHint = i === 0 ? 'Klik op een poesje om het op te pakken, klik nog eens om het neer te leggen 🐾' : i <= 2 ? 'Spatiebalk draait de poes die je vasthoudt ↻' : '';
     if (started) { showHint(pendingHint, 9); pendingHint = ''; }
   }
 
@@ -235,11 +236,12 @@
     if (cat.placed) freeCells(cat);
     cat.wake(); cat.pickUp();
     held = cat; grabOff = { x: p.x - cat.pos.x, y: p.y - cat.pos.y }; dragStart = p; moved = false;
+    downTime = performance.now(); carried = false;
     Sound.purrStart(cat.pitch);
     if (Math.random() < 0.6) Sound.mrrp(cat.pitch, 'hi');
     const hp = cat.headPos(); burst(hp.x, hp.y - 20, 2, 'heart');
     canvas.style.cursor = 'grabbing';
-    if (levelIdx < 4) showHint('Draaien: spatie, scrollen of een klik zonder slepen ↻', 5);
+    if (levelIdx < 4) showHint('Spatie draait · klik om neer te leggen', 5);
   }
   function rotateHeld(times = 1) {
     if (!held) return;
@@ -250,33 +252,35 @@
     moved = true;
   }
   function release(p) {
-    const cat = held; held = null;
+    const cat = held; held = null; carried = false;
     Sound.purrStop();
-    if (!moved) {
-      // een klik zonder slepen: draaien
-      cat.rotate(); Sound.pop(cat.pitch);
-      if (wasPlaced && !isValid(cat, ...Object.values(snapCoords(cat)))) {
-        // past gedraaid niet op het kleedje: terugdraaien en blijven liggen
-        cat.rotate(); cat.rotate(); cat.rotate();
-        cat.drop();
-        cat.anim.squash = 0.06; cat.anim.earTwitch = 1;
-        cat.say('mrrp?', 1.2);
-        place(cat, wasPlaced.gx, wasPlaced.gy);
-        canvas.style.cursor = 'grab';
-        return;
-      }
-    }
     cat.drop();
     if (!trySnap(cat) && needsNudge(cat)) nudgeOff(cat);
     canvas.style.cursor = topCatAt(p) ? 'grab' : 'default';
+  }
+  // een poes draaien die niet opgepakt is (rechtermuisknop of scrollen boven een poes)
+  function rotateInPlace(cat, times = 1) {
+    if (cat.placed) {
+      const was = { gx: cat.gx, gy: cat.gy };
+      freeCells(cat);
+      for (let k = 0; k < times; k++) cat.rotate();
+      if (isValid(cat, ...Object.values(snapCoords(cat)))) { place(cat, ...Object.values(snapCoords(cat))); Sound.pop(cat.pitch); }
+      else { for (let k = 0; k < (4 - times % 4) % 4; k++) cat.rotate(); cat.anim.squash = 0.06; cat.anim.earTwitch = 1; place(cat, was.gx, was.gy); Sound.mrrp(cat.pitch, 'q'); }
+    } else {
+      for (let k = 0; k < times; k++) cat.rotate();
+      Sound.pop(cat.pitch);
+      cat.wake(); cat.drop();
+      if (needsNudge(cat)) nudgeOff(cat, false);
+    }
   }
 
   canvas.addEventListener('pointerdown', e => {
     if (!started || e.button === 2) return;
     Sound.ensure();
     const p = toLogical(e); lastP = p;
+    if (held) { release(p); return; }                    // gedragen poes neerleggen
     const cat = topCatAt(p);
-    if (cat && !held) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
+    if (cat) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
   });
   canvas.addEventListener('pointermove', e => {
     const p = toLogical(e); lastP = p;
@@ -287,19 +291,34 @@
       canvas.style.cursor = topCatAt(p) ? 'grab' : 'default';
     }
   });
-  const up = e => { if (held) release(toLogical(e)); };
-  canvas.addEventListener('pointerup', up);
-  canvas.addEventListener('pointercancel', up);
-  canvas.addEventListener('contextmenu', e => { e.preventDefault(); if (held) rotateHeld(); });
+  canvas.addEventListener('pointerup', e => {
+    if (!held || e.button === 2) return;
+    const p = toLogical(e);
+    const quick = performance.now() - downTime < 350 && !moved;
+    // een korte klik pakt op zonder vast te houden; een loslaten vlak na een toets (bv. touchpad dat
+    // uitschakelt tijdens typen) negeren we, zodat de poes niet per ongeluk valt
+    if (quick || performance.now() - lastKeyTime < 400) { carried = true; return; }
+    release(p);
+  });
+  canvas.addEventListener('pointercancel', e => { if (held && e.pointerType !== 'mouse') release(toLogical(e)); });
+  canvas.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    if (held) rotateHeld();
+    else if (started) { const c = topCatAt(toLogical(e)); if (c) rotateInPlace(c); }
+  });
   canvas.addEventListener('wheel', e => {
-    if (!held) return;
+    if (!started) return;
     e.preventDefault();
     const now = performance.now();
-    if (now - wheelCooldown > 180) { wheelCooldown = now; rotateHeld(e.deltaY < 0 ? 3 : 1); }
+    if (now - wheelCooldown < 180) return;
+    wheelCooldown = now;
+    if (held) rotateHeld(e.deltaY < 0 ? 3 : 1);
+    else { const c = topCatAt(toLogical(e)); if (c) rotateInPlace(c, e.deltaY < 0 ? 3 : 1); }
   }, { passive: false });
   window.addEventListener('keyup', e => { if (e.key === ' ' && overlay.classList.contains('hidden')) e.preventDefault(); });
   window.addEventListener('keydown', e => {
     if ((e.key === ' ' || e.key === 'Enter') && !overlay.classList.contains('hidden')) { e.preventDefault(); btnStart.click(); return; }
+    lastKeyTime = performance.now();
     if (!held) return;
     if (e.key === ' ' || e.key.toLowerCase() === 'r' || e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); rotateHeld(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); rotateHeld(3); }
