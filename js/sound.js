@@ -107,14 +107,15 @@ const Sound = (() => {
       q:    [[0, 300], [0.12, 470], [0.32, 760]],
       down: [[0, 460], [0.08, 560], [0.28, 320]],
       yawn: [[0, 260], [0.25, 420], [0.7, 240]],
+      grr:  [[0, 150], [0.15, 125], [0.55, 105], [0.7, 118]],
     };
     const pts = curves[kind] || curves.hi;
     const dur = pts[pts.length - 1][0] + 0.08;
     const out = gain(0.0001, master);
-    const bp = filter('bandpass', 1000 * pitch, 1.1, out);
+    const bp = filter('bandpass', (kind === 'grr' ? 380 : 1000) * pitch, kind === 'grr' ? 0.8 : 1.1, out);
     const o1 = osc('triangle', pts[0][1] * pitch, bp);
     const o2 = osc('sawtooth', pts[0][1] * pitch);
-    const g2 = gain(0.2, bp); o2.connect(g2);
+    const g2 = gain(kind === 'grr' ? 0.6 : 0.2, bp); o2.connect(g2);
     const vib = osc('sine', 7); const vibG = gain(6 * pitch, o1.frequency); vib.connect(vibG);
     for (const [dt, hz] of pts) {
       if (dt === 0) { o1.frequency.setValueAtTime(hz * pitch, t); o2.frequency.setValueAtTime(hz * pitch, t); }

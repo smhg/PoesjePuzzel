@@ -251,6 +251,7 @@ class Cat {
       earTwitch: 0, earL: 0, earR: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
       lookX: 0, lookY: 0, attn: 0, sniff: 0, nextSniff: Levels.rnd(3, 10), sniffPhase: 0,
       tongue: 0, tongueX: 0, tongueMode: null, tongueT: 0, nextTongue: Levels.rnd(12, 40), lickIn: -1,
+      shake: 0, grump: 0, grumpT: 0,
       walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16), breath: 0,
     };
     this.walkTarget = null;
@@ -385,10 +386,20 @@ class Cat {
     this.stateTime += dt;
     // snelheid
     const vx = (this.pos.x - this.prev.x) / Math.max(dt, 1e-3), vy = (this.pos.y - this.prev.y) / Math.max(dt, 1e-3);
+    // schudden: snelle richtingwisselingen terwijl ze gedragen wordt maken haar even boos
+    const pvx = this.vel.x, pvy = this.vel.y;
     this.vel.x = lerp(this.vel.x, vx, Math.min(1, dt * 12));
     this.vel.y = lerp(this.vel.y, vy, Math.min(1, dt * 12));
     this.prev.x = this.pos.x; this.prev.y = this.pos.y;
     const speed = Math.hypot(this.vel.x, this.vel.y);
+    const jerk = Math.hypot(this.vel.x - pvx, this.vel.y - pvy) / Math.max(dt, 1e-3);
+    a.shake = a.shake * Math.exp(-dt * 1.6) + (this.held ? jerk * dt * 0.00009 : 0);
+    if (a.shake > 1 && a.grumpT <= 0) {
+      a.grumpT = 3.2; a.shake = 0.3;
+      if (typeof Sound !== 'undefined') { Sound.purrStop(0.2); Sound.mrrp(this.pitch, 'grr'); }
+    }
+    if (a.grumpT > 0) { a.grumpT -= dt; if (a.grumpT <= 0 && this.held && typeof Sound !== 'undefined') Sound.purrStart(this.pitch); }
+    a.grump = lerp(a.grump, a.grumpT > 0 ? 1 : 0, Math.min(1, dt * (a.grumpT > 0 ? 8 : 2.5)));
 
     // wiebelen bij bewegen: uitrekken in de bewegingsrichting
     const k = 0.00003;
@@ -1005,8 +1016,8 @@ class Cat {
       ctx.stroke();
       ctx.restore();
     };
-    drawEar(-1, Math.sin(a.earL * Math.PI) * 0.3);
-    drawEar(1, Math.sin(Math.max(a.earR, a.earTwitch) * Math.PI) * 0.35);
+    drawEar(-1, Math.sin(a.earL * Math.PI) * 0.3 + a.grump * 0.7);
+    drawEar(1, Math.sin(Math.max(a.earR, a.earTwitch) * Math.PI) * 0.35 + a.grump * 0.7);
 
     // kop met vacht uit de cache
     const fur = this.ensureFur(this.drawScale);
@@ -1017,7 +1028,7 @@ class Cat {
     const ex = r * (0.36 + (seeded(this.seed + 5) - 0.5) * 0.04), eyeShift = f.x * r * 0.05;
     const ey = hy + r * 0.06 + f.y * r * 0.05;
     const blink = sleeping ? 1 : a.blink;
-    const openness = sleeping ? 0 : clamp(1 - Math.sin(blink * Math.PI) * 1.2, 0.05, 1);
+    const openness = sleeping ? 0 : clamp(1 - Math.sin(blink * Math.PI) * 1.2, 0.05, 1) * (1 - a.grump * 0.45);
     if (openness < 0.12) {
       ctx.strokeStyle = rgba(headDark, 0.9); ctx.lineWidth = r * 0.085; ctx.lineCap = 'round';
       [-1, 1].forEach(sgn => {
@@ -1061,11 +1072,23 @@ class Cat {
     ctx.strokeStyle = rgba(headDark, 0.85); ctx.lineWidth = r * 0.06; ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(nx, ny + r * 0.09); ctx.lineTo(nx, ny + r * 0.17);
+    const g = a.grump, cyM = ny + r * (0.34 - 0.2 * g), eyM = ny + r * (0.2 + 0.07 * g);
     ctx.moveTo(nx, ny + r * 0.17);
-    ctx.quadraticCurveTo(nx - r * 0.12, ny + r * 0.34, nx - r * 0.28, ny + r * 0.2);
+    ctx.quadraticCurveTo(nx - r * 0.12, cyM, nx - r * 0.28, eyM);
     ctx.moveTo(nx, ny + r * 0.17);
-    ctx.quadraticCurveTo(nx + r * 0.12, ny + r * 0.34, nx + r * 0.28, ny + r * 0.2);
+    ctx.quadraticCurveTo(nx + r * 0.12, cyM, nx + r * 0.28, eyM);
     ctx.stroke();
+    if (g > 0.05) {
+      // boze wenkbrauwtjes
+      ctx.save(); ctx.globalAlpha = g; ctx.strokeStyle = rgba(headDark, 0.85); ctx.lineWidth = r * 0.07; ctx.lineCap = 'round';
+      [-1, 1].forEach(sgn => {
+        ctx.beginPath();
+        ctx.moveTo(hx + sgn * r * 0.2, hy - r * 0.3 + g * r * 0.05);
+        ctx.lineTo(hx + sgn * r * 0.55, hy - r * 0.42 - g * r * 0.04);
+        ctx.stroke();
+      });
+      ctx.restore();
+    }
 
     // tongetje
     if (a.tongue > 0.02) {
