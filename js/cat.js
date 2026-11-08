@@ -624,6 +624,12 @@ class Cat {
   // plakken die elk beeldje. Opnieuw tekenen bij een andere vorm/kijkrichting (draaien) of
   // als de schermschaal flink verandert. Oogjes, oortjes, staart, pootjes-wiebel en de
   // plet-/til-animatie blijven gewoon live.
+  // cache-bitmaps meteen vrijgeven (bij een nieuwe puzzel), zonder op de garbage collector te wachten
+  dispose() {
+    const f = this.fur; this.fur = null;
+    if (!f) return;
+    for (const cv of [f.body, f.head, f.shadow]) if (cv) { cv.width = 0; cv.height = 0; }
+  }
   furKey() {
     return this.cells.map(c => c.x + ',' + c.y).join(';') + '|' + this.headIdx + '|' + this.facing.x + ',' + this.facing.y;
   }

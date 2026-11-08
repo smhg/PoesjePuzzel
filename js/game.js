@@ -23,11 +23,12 @@
   let lastT = 0, hintTimer = 0, wheelCooldown = 0, pendingHint = '';
 
   const { rnd, rndInt, pick, key } = Levels;
+  const gameApi = { spawnZzz: (x, y) => spawnZzz(x, y), spawnPuff: (x, y) => spawnPuff(x, y), interest: null, cats: [] };
 
   // --- grootte ------------------------------------------------------------
   function resize() {
     scale = Math.min(window.innerWidth / W, window.innerHeight / H);
-    dpr = window.devicePixelRatio || 1;
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);   // begrensd: scheelt veel werk op tablets, nauwelijks zichtbaar
     stage.style.width = W * scale + 'px';
     stage.style.height = H * scale + 'px';
     stage.style.fontSize = 16 * scale + 'px';
@@ -63,13 +64,15 @@
     carpetColor = i % Room.CARPET_COLORS.length;
     const pieces = Levels.partition(cells, L.min, L.max);
     const order = CAT_COLORS.map((_, k) => k).sort(() => Math.random() - 0.5);
+    for (const c of cats) if (c.dispose) c.dispose();
     cats = pieces.map((p, k) => new Cat(p, order[k % order.length], CS));
+    gameApi.cats = cats; lastPicked = null;
     scatter(cats);
     complete = false; completeTimer = 0; particles = [];
     walkTimer = rnd(45, 80);
     held = null;
     levelEl.textContent = `Puzzel ${i + 1} · ${L.name}`;
-    pendingHint = i === 0 ? 'Klik op een poesje om het op te pakken, klik nog eens om het neer te leggen 🐾' : i <= 2 ? 'Spatiebalk draait de poes die je vasthoudt ↻' : '';
+    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i <= 2 ? 'Tik of klik op een poesje om het te draaien ↻' : '';
     if (started) { showHint(pendingHint, 9); pendingHint = ''; }
   }
 
@@ -130,13 +133,15 @@
     return cat.cells.some(c => gx + c.x >= 0 && gx + c.x < grid.cols && gy + c.y >= 0 && gy + c.y < grid.rows);
   }
   function freeCells(cat) { for (const [k, v] of [...grid.occupied]) if (v === cat) grid.occupied.delete(k); }
-  function place(cat, gx, gy) {
+  function place(cat, gx, gy, quiet = false) {
     cat.placed = true; cat.gx = gx; cat.gy = gy;
     cat.pos = { x: grid.x + gx * CS, y: grid.y + gy * CS };
     cat.cells.forEach(c => grid.occupied.set(key(gx + c.x, gy + c.y), cat));
-    Sound.plop(cat.pitch); Sound.sparkle();
-    const c = cat.center();
-    burst(c.x, c.y, 5, 'heart'); burst(c.x, c.y, 6, 'spark');
+    if (!quiet) {
+      Sound.plop(cat.pitch); Sound.sparkle();
+      const c = cat.center();
+      burst(c.x, c.y, 5, 'heart'); burst(c.x, c.y, 6, 'spark');
+    }
     checkComplete();
   }
   function trySnap(cat) {
@@ -236,7 +241,10 @@
   }
   function sortedCats() {
     const s = cats.slice().sort((a, b) => a.bottom - b.bottom);
-    if (held) { const i = s.indexOf(held); if (i >= 0) { s.splice(i, 1); s.push(held); } }
+    for (const top of [lastPicked, held]) {       // de laatst opgepakte poes ligt altijd bovenop
+      if (!top) continue;
+      const i = s.indexOf(top); if (i >= 0) { s.splice(i, 1); s.push(top); }
+    }
     return s;
   }
   function topCatAt(p) {
@@ -249,13 +257,13 @@
     wasPlaced = cat.placed ? { gx: cat.gx, gy: cat.gy } : null;
     if (cat.placed) freeCells(cat);
     cat.wake(); cat.pickUp();
-    held = cat; grabOff = { x: p.x - cat.pos.x, y: p.y - cat.pos.y }; dragStart = p; moved = false;
+    held = cat; lastPicked = cat; grabOff = { x: p.x - cat.pos.x, y: p.y - cat.pos.y }; dragStart = p; moved = false;
     downTime = performance.now(); carried = false;
     Sound.purrStart(cat.pitch);
     if (Math.random() < 0.6) Sound.mrrp(cat.pitch, 'hi');
     const hp = cat.headPos(); burst(hp.x, hp.y - 20, 2, 'heart');
     canvas.style.cursor = 'grabbing';
-    if (levelIdx < 4) showHint('Spatie draait · klik om neer te leggen', 5);
+    if (levelIdx < 4) showHint('Draaien: tik erop, spatie, of de roze knop ↻', 5);
   }
   function rotateHeld(times = 1) {
     if (!held) return;
@@ -267,7 +275,7 @@
     moved = true;
   }
   function release(p) {
-    const cat = held; held = null; carried = false;
+    const cat = held; held = null; carried = false; heldPointerId = null;
     Sound.purrStop();
     cat.drop();
     if (!trySnap(cat) && needsNudge(cat)) nudgeOff(cat);
@@ -279,8 +287,8 @@
       const was = { gx: cat.gx, gy: cat.gy };
       freeCells(cat);
       for (let k = 0; k < times; k++) cat.rotate();
-      if (isValid(cat, ...Object.values(snapCoords(cat)))) { place(cat, ...Object.values(snapCoords(cat))); Sound.pop(cat.pitch); }
-      else { for (let k = 0; k < (4 - times % 4) % 4; k++) cat.rotate(); cat.anim.squash = 0.06; cat.anim.earTwitch = 1; place(cat, was.gx, was.gy); Sound.mrrp(cat.pitch, 'q'); }
+      if (isValid(cat, ...Object.values(snapCoords(cat)))) { place(cat, ...Object.values(snapCoords(cat)), true); Sound.pop(cat.pitch); }
+      else { for (let k = 0; k < (4 - times % 4) % 4; k++) cat.rotate(); cat.anim.squash = 0.06; cat.anim.earTwitch = 1; place(cat, was.gx, was.gy, true); Sound.mrrp(cat.pitch, 'q'); }
     } else {
       for (let k = 0; k < times; k++) cat.rotate();
       Sound.pop(cat.pitch);
@@ -289,18 +297,24 @@
     }
   }
 
+  let heldPointerId = null, lastPicked = null;
   canvas.addEventListener('pointerdown', e => {
     if (!started || e.button === 2) return;
     Sound.ensure();
     const p = toLogical(e); lastP = p;
     if (pendingRelease) { clearTimeout(pendingRelease); pendingRelease = null; }
-    if (held) { release(p); return; }                    // gedragen poes neerleggen
+    if (held) {
+      // tweede vinger tijdens het slepen: draaien; anders (gedragen poes) neerleggen
+      if (heldPointerId !== null && e.pointerId !== heldPointerId && !carried) { e.preventDefault(); rotateHeld(); return; }
+      release(p); return;
+    }
     const cat = topCatAt(p);
-    if (cat) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
+    if (cat) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} heldPointerId = e.pointerId; pickUp(cat, p); }
   });
   canvas.addEventListener('pointermove', e => {
     const p = toLogical(e); lastP = p;
     if (held) {
+      if (heldPointerId !== null && e.pointerId !== heldPointerId && !carried) return;   // tweede vinger beweegt de poes niet
       held.pos.x = p.x - grabOff.x; held.pos.y = p.y - grabOff.y;
       if (dragStart && Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 7) moved = true;
     } else if (started) {
@@ -309,11 +323,21 @@
   });
   canvas.addEventListener('pointerup', e => {
     if (!held || e.button === 2) return;
+    if (heldPointerId !== null && e.pointerId !== heldPointerId) return;   // loslaten van de tweede vinger
     const p = toLogical(e);
     const quick = performance.now() - downTime < 350 && !moved;
-    // een korte klik pakt op zonder vast te houden; een loslaten vlak na een toets (bv. touchpad dat
-    // uitschakelt tijdens typen) negeren we, zodat de poes niet per ongeluk valt
-    if (quick || performance.now() - lastKeyTime < 400) { carried = true; return; }
+    if (quick && !carried) {
+      // een tik of klik zonder slepen: de poes draait ter plekke (ze blijft gewoon liggen)
+      const cat = held; held = null; heldPointerId = null;
+      Sound.purrStop(0.2);
+      cat.drop();
+      if (wasPlaced) place(cat, wasPlaced.gx, wasPlaced.gy, true);
+      rotateInPlace(cat);
+      canvas.style.cursor = 'grab';
+      return;
+    }
+    // een loslaten vlak na een toets (touchpad dat uitschakelt tijdens typen) negeren we: poes blijft vast
+    if (performance.now() - lastKeyTime < 400) { carried = true; return; }
     // touchpads beëindigen een tik-sleep zodra je een toets indrukt; dat loslaten kan nét vóór de
     // toets binnenkomen. Daarom 120 ms wachten: komt er een draaitoets, dan vervalt het loslaten.
     if (pendingRelease) clearTimeout(pendingRelease);
@@ -397,7 +421,6 @@
   });
 
   // --- lus ----------------------------------------------------------------
-  const gameApi = { spawnZzz, spawnPuff, interest: null };
   let interestId = 0;
   function update(dt, t) {
     btnRotate.classList.toggle('show', !!held);
@@ -409,6 +432,9 @@
       gameApi.interest = { id: interestId, x: hp.x, y: hp.y, source: mover };
     } else gameApi.interest = null;
     for (const c of cats) c.update(dt, t, gameApi);
+    checkBumps(dt);
+    // het bolletje wol blijft van het kleedje, de meubels en liggende poezen af
+    Room.updateProps(dt, t, [Room.carpetRect(grid, 24), ...cats.filter(c => c !== held && c.state !== 'walking').map(c => c.bbox(8))]);
     for (const p of particles) {
       p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt;
       if (p.type === 'heart') { p.vy -= 30 * dt; p.vx *= 0.98; }
@@ -457,6 +483,40 @@
     }
   }
 
+  // --- stoten tegen de spulletjes -----------------------------------------
+  // Een gedragen of huppelende poes die een voorwerp raakt geeft het een zetje (Room.bump); per poes en
+  // per voorwerp alleen bij het binnenkomen en hooguit elke 0,8 s. Het bolletje wol wordt ook weggeduwd
+  // zolang de poes erover hangt.
+  const bumpMem = new WeakMap();
+  function checkBumps(dt) {
+    for (const c of cats) {
+      let mem = bumpMem.get(c);
+      if (!mem) { mem = {}; bumpMem.set(c, mem); }
+      const active = c === held || c.state === 'walking';
+      const bb = c.bbox(CS * 0.2), cc = c.center();
+      const speed = Math.hypot(c.vel.x, c.vel.y);
+      for (const pr of Room.propRects()) {
+        const m = mem[pr.id] || (mem[pr.id] = { inside: false, cd: 0 });
+        m.cd = Math.max(0, m.cd - dt);
+        const over = active && intersects(bb, pr);
+        if (over) {
+          const toward = { x: pr.x + pr.w / 2 - cc.x, y: pr.y + pr.h / 2 - cc.y };
+          const tl = Math.hypot(toward.x, toward.y);
+          if (tl > 1) { toward.x /= tl; toward.y /= tl; } else { toward.x = 1; toward.y = 0; }
+          const dir = speed > 40 ? { x: c.vel.x / speed, y: c.vel.y / speed } : toward;
+          if (!m.inside && m.cd <= 0) {
+            const strength = Math.min(1.4, 0.3 + speed / 900);
+            Room.bump(pr.id, dir, strength);
+            if (pr.id === 'bowl' && strength > 0.5) Sound.pop(1.6);     // tikje tegen het bakje
+            m.cd = 0.8;
+          }
+          if (pr.id === 'yarn') Room.nudge('yarn', { x: toward.x + dir.x * 0.5, y: toward.y + dir.y * 0.5 }, dt);
+        }
+        m.inside = over;
+      }
+    }
+  }
+
   function drawGhost() {
     if (!held || !moved) return;
     const { gx, gy } = snapCoords(held);
@@ -476,7 +536,12 @@
     Room.drawCarpet(ctx, grid, carpetColor);
     drawMotes(t);
     drawGhost();
-    for (const c of sortedCats()) c.draw(ctx, t);
+    // spulletjes en poezen samen op diepte (onderkant) gesorteerd; de gedragen poes bovenop
+    const items = Room.drawables().map(d => ({ b: d.bottom, draw: () => d.draw(ctx, t) }));
+    for (const c of cats) if (c !== held) items.push({ b: c.bottom, draw: () => c.draw(ctx, t) });
+    items.sort((a, b) => a.b - b.b);
+    for (const it of items) it.draw();
+    if (held) held.draw(ctx, t);
     drawParticles(t);
   }
 
@@ -493,7 +558,7 @@
   levelIdx = params.has('level') ? Math.max(0, (parseInt(params.get('level'), 10) || 1) - 1) : loadProgress();
   loadLevel(levelIdx);
   if (params.has('debug')) {
-    window.PP = { cats: () => cats, held: () => held, grid: () => grid };
+    window.PP = { cats: () => cats, held: () => held, grid: () => grid, bump: Room.bump, props: Room.propRects };
     keyLog = document.createElement('div'); keyLog.id = 'keylog'; keyLog.textContent = 'toetsen: nog niets ontvangen';
     document.getElementById('ui').appendChild(keyLog);
     // ook klikken die van het toetsenbord komen (detail 0) laten zien, en IME-compositie
