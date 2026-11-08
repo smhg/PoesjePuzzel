@@ -250,11 +250,13 @@ class Cat {
       sx: 1, sy: 1, squash: 0, squashV: 0, lift: 0, headDx: 0, headDy: 0,
       earTwitch: 0, earL: 0, earR: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
       lookX: 0, lookY: 0, attn: 0, sniff: 0, nextSniff: Levels.rnd(3, 10), sniffPhase: 0,
+      tongue: 0, tongueX: 0, tongueMode: null, tongueT: 0, nextTongue: Levels.rnd(12, 40), lickIn: -1,
       walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16), breath: 0,
     };
     this.walkTarget = null;
     this.bubble = null;
     this.curiosity = Levels.rnd(0.25, 0.65);   // hoe snel deze poes ergens naar kijkt
+    this.wasPlaced = false;
     this.attnEvent = null;                      // waar ze nu naar kijkt (bron van interesse)
     this.zzzTimer = 0;
     this.fur = null;            // cache van de vacht (lijfje + kop), zie ensureFur()
@@ -425,6 +427,28 @@ class Cat {
     a.nextSniff -= dt * (1 + a.attn * 2.5) * (this.state === 'sleeping' ? 0.15 : 1);
     if (a.nextSniff <= 0) { a.sniff = 1; a.nextSniff = Levels.rnd(5, 14); }
     if (a.sniff > 0) { a.sniff = Math.max(0, a.sniff - dt / 0.7); a.sniffPhase += dt * 42; }
+
+    // tongetje: af en toe een 'blep' (puntje tong blijft even uitsteken) en na het neerleggen soms een likje
+    if (this.placed && !this.wasPlaced && Math.random() < 0.45) a.lickIn = Levels.rnd(0.5, 1.2);
+    this.wasPlaced = this.placed;
+    if (a.lickIn >= 0) { a.lickIn -= dt; if (a.lickIn < 0 && !a.tongueMode) { a.tongueMode = 'lick'; a.tongueT = 0; } }
+    if (!a.tongueMode && this.state !== 'sleeping' && !this.held) {
+      a.nextTongue -= dt;
+      if (a.nextTongue <= 0) { a.nextTongue = Levels.rnd(25, 70); a.tongueMode = Math.random() < 0.7 ? 'blep' : 'lick'; a.tongueT = 0; a.blepDur = Levels.rnd(2, 5); }
+    }
+    if (a.tongueMode === 'blep') {
+      a.tongueT += dt;
+      const d = a.blepDur || 3;
+      a.tongue = a.tongueT < 0.3 ? a.tongueT / 0.3 : a.tongueT > d - 0.3 ? Math.max(0, (d - a.tongueT) / 0.3) : 1;
+      a.tongueX = Math.sin(a.tongueT * 1.3) * 0.15;
+      if (this.held || a.tongueT >= d) { a.tongueMode = null; a.tongue = 0; }
+    } else if (a.tongueMode === 'lick') {
+      a.tongueT += dt;
+      const u = a.tongueT / 0.55;                       // tong komt uit, veegt opzij over het mondje en gaat weer naar binnen
+      a.tongue = Math.sin(Math.min(1, u) * Math.PI);
+      a.tongueX = Math.cos(Math.min(1, u) * Math.PI) * -0.9;
+      if (u >= 1) { a.tongueMode = null; a.tongue = 0; }
+    } else a.tongue = Math.max(0, a.tongue - dt * 4);
 
     // interesse: kijkt deze poes naar iets dat gebeurt (een poes die gedragen wordt of huppelt)?
     const ev = game && game.interest;
@@ -1032,6 +1056,22 @@ class Cat {
     ctx.moveTo(nx, ny + r * 0.17);
     ctx.quadraticCurveTo(nx + r * 0.12, ny + r * 0.34, nx + r * 0.28, ny + r * 0.2);
     ctx.stroke();
+
+    // tongetje
+    if (a.tongue > 0.02) {
+      const tw = r * 0.15, tl = r * 0.2 * a.tongue;
+      const tx = nx + a.tongueX * r * 0.12, ty = ny + r * 0.17;
+      ctx.save();
+      ctx.beginPath(); ctx.moveTo(tx - tw / 2, ty - r * 0.02); ctx.lineTo(tx + tw / 2, ty - r * 0.02);
+      ctx.lineTo(tx + tw / 2, ty + tl - tw / 2); ctx.arc(tx, ty + tl - tw / 2, tw / 2, 0, Math.PI); ctx.closePath();
+      ctx.fillStyle = '#f28ba6'; ctx.fill();
+      ctx.strokeStyle = rgba(headDark, 0.45); ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.strokeStyle = 'rgba(200,80,110,0.5)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(tx, ty + r * 0.02); ctx.lineTo(tx, ty + tl - tw * 0.35); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.beginPath(); ctx.ellipse(tx - tw * 0.2, ty + tl * 0.5, tw * 0.15, Math.max(0.5, tl * 0.25), 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
 
     // snorharen
     ctx.strokeStyle = hexToRgb(col.base).reduce((s, v) => s + v, 0) > 450 ? rgba(headDark, 0.45) : 'rgba(255,255,255,0.55)';
