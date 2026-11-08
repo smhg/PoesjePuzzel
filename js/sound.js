@@ -203,46 +203,47 @@ const Sound = (() => {
     const o2 = osc('triangle', hz); const g2 = gain(0.25, g); o2.connect(g2);
     g.gain.setValueAtTime(0.0001, t0);
     g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
-    [o, o2].forEach(n => { n.start(t0); n.stop(t0 + 0.75); });
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5);
+    [o, o2].forEach(n => { n.start(t0); n.stop(t0 + 0.55); });
+  }
+  // zacht getokkeld akkoord (kalimba-achtig), noten iets na elkaar
+  function pluckChord(freqs, t0, vol) {
+    freqs.forEach((hz, i) => {
+      const g = gain(0.0001, master);
+      const o = osc('triangle', hz, g);
+      const o2 = osc('sine', hz * 2); const g2 = gain(0.12, g); o2.connect(g2);
+      const ts = t0 + i * 0.035;
+      g.gain.setValueAtTime(0.0001, ts);
+      g.gain.exponentialRampToValueAtTime(vol, ts + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, ts + 0.7);
+      [o, o2].forEach(n => { n.start(ts); n.stop(ts + 0.75); });
+    });
   }
   function ambientStart() {
     if (!ensure() || ambient) return;
-    const out = gain(0.0001, master);
-    const lp = filter('lowpass', 1500, 0.4, out);
-    const voices = BARS[0].pad.map(hz => {
-      const g = gain(0.02, lp);
-      const a = osc('triangle', hz, g);
-      const b = osc('sine', hz * 1.002); const bg = gain(0.5, g); b.connect(bg);
-      a.start(); b.start();
-      return { a, b };
-    });
-    out.gain.exponentialRampToValueAtTime(1, now() + 3);
+    // geen lang aangehouden tonen: alles is kort getokkeld, zodat het licht en luchtig blijft
     let bar = 0, round = 0;
     const playBar = () => {
       const t0 = now() + 0.1;
       const B = BARS[bar];
-      B.pad.forEach((hz, i) => {
-        voices[i].a.frequency.exponentialRampToValueAtTime(hz, t0 + 0.6);
-        voices[i].b.frequency.exponentialRampToValueAtTime(hz * 1.002, t0 + 0.6);
-      });
-      bass(B.bass, t0, 0.09);
-      bass(B.bass * 1.5, t0 + 4 * BEAT, 0.06);
-      bass(B.bass, t0 + 6 * BEAT, 0.05);
-      // melodie: elke tweede ronde iets rustiger, zodat het niet eentonig wordt
+      bass(B.bass, t0, 0.08);
+      bass(B.bass * 1.5, t0 + 4 * BEAT, 0.05);
+      pluckChord(B.pad, t0, 0.028);
+      pluckChord(B.pad.slice(1), t0 + 3 * BEAT, 0.018);
+      pluckChord(B.pad, t0 + 5 * BEAT, 0.022);
       const quiet = round % 2 === 1;
       MELODY[bar].forEach(([beat, name], i) => {
         if (quiet && i % 2 === 1) return;
         const accent = beat % 4 === 0 ? 0.05 : 0.036;
-        bell(NOTE[name], t0 + beat * BEAT, accent, 1.3);
+        bell(NOTE[name], t0 + beat * BEAT, accent, 0.9);
       });
-      if (!quiet && Math.random() < 0.5) bell(NOTE[SPARK[Math.floor(Math.random() * SPARK.length)]], t0 + 7 * BEAT, 0.025, 1.6);
+      if (!quiet && Math.random() < 0.5) bell(NOTE[SPARK[Math.floor(Math.random() * SPARK.length)]], t0 + 7 * BEAT, 0.025, 1.0);
       bar = (bar + 1) % BARS.length;
       if (bar === 0) round++;
     };
     playBar();
     const barTimer = setInterval(playBar, BAR_BEATS * BEAT * 1000);
-    ambient = { out, stop: () => clearInterval(barTimer) };
+    ambient = { stop: () => clearInterval(barTimer) };
   }
 
   function setEnabled(on) {
