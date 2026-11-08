@@ -101,7 +101,7 @@ class Cat {
     this.anim = {
       sx: 1, sy: 1, squash: 0, squashV: 0, lift: 0, headDx: 0, headDy: 0,
       earTwitch: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
-      walkPhase: 0, rot: 0, wag: 0, stretch: 0,
+      walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16),
     };
     this.walkTarget = null;
     this.bubble = null;
@@ -228,7 +228,13 @@ class Cat {
     a.headDx = lerp(a.headDx, clamp(-this.vel.x * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.headDy = lerp(a.headDy, clamp(-this.vel.y * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.wag = lerp(a.wag, clamp(speed / 600, 0, 1), Math.min(1, dt * 4));
-    a.tailPhase += dt * (1.3 + a.wag * 1.4 + (this.held ? 0.5 : 0)) * (this.state === 'sleeping' ? 0.35 : 1);
+    // de staart zwaait alleen als de poes gedragen wordt of loopt; in rust ligt hij stil met af en toe een tik
+    const active = this.held || this.state === 'walking' || this.state === 'stretching';
+    a.tailAct = lerp(a.tailAct, active ? 1 : 0, Math.min(1, dt * (active ? 5 : 1.2)));
+    a.tailPhase += dt * (1.6 + a.wag * 1.4) * a.tailAct;
+    a.tailFlick = Math.max(0, a.tailFlick - dt / 1.8);
+    a.nextFlick -= dt;
+    if (a.nextFlick <= 0) { a.nextFlick = Levels.rnd(8, 24); if (!active && this.state !== 'sleeping') a.tailFlick = 1; }
 
     // veertje voor het pletten/stuiteren
     a.squashV += (-a.squash * 160 - a.squashV * 8) * dt;
@@ -337,8 +343,9 @@ class Cat {
     const tc = this.cellCenter(this.cells[this.tailIdx]);
     const d = this.tailDir, p = { x: -d.y, y: d.x };
     const sleeping = this.state === 'sleeping';
-    const amp = sleeping ? 0.25 : 0.55 + a.wag * 0.2 + (this.state === 'held' ? 0.1 : 0);
-    const sway = Math.sin(a.tailPhase) * amp + (sleeping ? 0.5 : 0);
+    const rest = sleeping ? 0.75 : 0.45;
+    const flick = a.tailFlick > 0 ? Math.sin((1 - a.tailFlick) * Math.PI) * 0.35 : 0;
+    const sway = rest * (1 - a.tailAct * 0.6) + Math.sin(a.tailPhase) * (0.55 + a.wag * 0.2) * a.tailAct + flick;
     // de staart sleept een beetje achter de beweging aan
     const lagX = clamp(-this.vel.x * 0.05, -cs * 0.45, cs * 0.45);
     const lagY = clamp(-this.vel.y * 0.05, -cs * 0.45, cs * 0.45);
