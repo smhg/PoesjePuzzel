@@ -259,7 +259,7 @@
         // past gedraaid niet op het kleedje: terugdraaien en blijven liggen
         cat.rotate(); cat.rotate(); cat.rotate();
         cat.drop();
-        cat.anim.squash = 0.18; cat.anim.earTwitch = 1;
+        cat.anim.squash = 0.06; cat.anim.earTwitch = 1;
         cat.say('mrrp?', 1.2);
         place(cat, wasPlaced.gx, wasPlaced.gy);
         canvas.style.cursor = 'grab';

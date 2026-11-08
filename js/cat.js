@@ -165,7 +165,7 @@ class Cat {
     this.tailDir = { x: -this.tailDir.y, y: this.tailDir.x };
     const c1 = this.center();
     this.pos.x += c0.x - c1.x; this.pos.y += c0.y - c1.y;
-    this.anim.squash = 0.2; this.anim.squashV = 1.5;
+    this.anim.squash = 0.06; this.anim.squashV = 0.4;
     this.anim.earTwitch = 1;
   }
 
@@ -190,12 +190,12 @@ class Cat {
   pickUp() {
     this.held = true; this.placed = false; this.state = 'held'; this.stateTime = 0;
     this.walkTarget = null; this.idleTime = 0; this.bubble = null;
-    this.anim.squash = -0.15; this.anim.squashV = 0;
+    this.anim.squash = -0.05; this.anim.squashV = 0;
   }
   drop() {
     this.held = false; this.state = 'idle'; this.stateTime = 0; this.idleTime = 0;
     this.sleepAfter = Levels.rnd(18, 45);
-    this.anim.squash = 0.28; this.anim.squashV = 0;
+    this.anim.squash = 0.09; this.anim.squashV = 0;
   }
   walkTo(target, withStretch = false) {
     this.walkTarget = target; this.placed = false; this.idleTime = 0;
@@ -218,13 +218,13 @@ class Cat {
     const speed = Math.hypot(this.vel.x, this.vel.y);
 
     // wiebelen bij bewegen: uitrekken in de bewegingsrichting
-    const k = 0.00012;
+    const k = 0.00003;
     let tsx = 1 + Math.abs(this.vel.x) * k - Math.abs(this.vel.y) * k * 0.5;
     let tsy = 1 + Math.abs(this.vel.y) * k - Math.abs(this.vel.x) * k * 0.5;
-    tsx = clamp(tsx, 0.88, 1.18); tsy = clamp(tsy, 0.88, 1.18);
+    tsx = clamp(tsx, 0.96, 1.05); tsy = clamp(tsy, 0.96, 1.05);
     a.sx = lerp(a.sx, tsx, Math.min(1, dt * 8));
     a.sy = lerp(a.sy, tsy, Math.min(1, dt * 8));
-    const hd = this.cs * 0.14;
+    const hd = this.cs * 0.07;
     a.headDx = lerp(a.headDx, clamp(-this.vel.x * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.headDy = lerp(a.headDy, clamp(-this.vel.y * 0.025, -hd, hd), Math.min(1, dt * 7));
     a.wag = lerp(a.wag, clamp(speed / 600, 0, 1), Math.min(1, dt * 4));
@@ -262,12 +262,12 @@ class Cat {
       if (d <= sp) {
         this.pos.x = this.walkTarget.x; this.pos.y = this.walkTarget.y;
         this.walkTarget = null; this.state = 'idle'; this.stateTime = 0;
-        a.squash = 0.15; a.rot = 0;
+        a.squash = 0.05; a.rot = 0;
       } else {
         this.pos.x += dx / d * sp; this.pos.y += dy / d * sp;
         a.walkPhase += dt * 11;
         a.rot = Math.sin(a.walkPhase) * 0.05;
-        a.sy *= 1 + Math.sin(a.walkPhase * 2) * 0.035;
+        a.sy *= 1 + Math.sin(a.walkPhase * 2) * 0.015;
       }
     } else if (this.state === 'idle') {
       a.rot = lerp(a.rot, 0, Math.min(1, dt * 6));
@@ -326,10 +326,10 @@ class Cat {
     ctx.save();
     const sq = a.squash;
     const stretch = a.stretch || 0;
-    const s = 1 + a.lift * 0.08;
+    const s = 1 + a.lift * 0.04;
     ctx.translate(c.x, c.y - a.lift * 14);
     ctx.rotate(a.rot);
-    ctx.scale(a.sx * s * (1 - sq * 0.6) * (1 + stretch * 0.12), a.sy * s * (1 + sq) * (1 - stretch * 0.06));
+    ctx.scale(a.sx * s * (1 - sq * 0.6) * (1 + stretch * 0.06), a.sy * s * (1 + sq) * (1 - stretch * 0.03));
     ctx.translate(-c.x, -c.y);
 
     this.drawTail(ctx, t);
