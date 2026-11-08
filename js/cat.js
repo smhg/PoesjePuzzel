@@ -571,7 +571,17 @@ class Cat {
 
   drawShadow(ctx) {
     const a = this.anim, lift = Math.min(1, a.lift + (a.hop || 0) / (this.cs * 0.3) * 0.6);
-    // schaduw-offsets zijn in apparaatpixels, dus meeschalen met de huidige transformatie
+    const f = this.fur;
+    if (f && f.shadow) {
+      // gecachete, al vervaagde schaduw stempelen; bij optillen iets groter, lichter en verder weg
+      const grow = 1 + lift * 0.1, dx = 4 + lift * 10, dy = 7 + lift * 22;
+      ctx.save();
+      ctx.globalAlpha = 0.3 - lift * 0.12;
+      ctx.drawImage(f.shadow, this.pos.x - f.SM + dx - (grow - 1) * f.sw / 2, this.pos.y - f.SM + dy - (grow - 1) * f.sh / 2, f.sw * grow, f.sh * grow);
+      ctx.restore();
+      return;
+    }
+    // zonder cache (zou niet moeten voorkomen): de oude manier
     const S = ctx.getTransform ? ctx.getTransform().a : 1;
     const OFF = 4000;
     ctx.save();
@@ -637,7 +647,15 @@ class Cat {
     const hc = head.getContext('2d');
     hc.scale(S, S); hc.translate(hr, hr);
     this.paintHead(hc);
-    this.fur = { key, S, body, M, bw, bh, head, hr };
+    // schaduw: één keer vervagen en daarna alleen nog stempelen (blur per frame is duur op tablets)
+    const SM = cs * 0.5, sw = this.width + 2 * SM, sh = this.height + 2 * SM;
+    const shadow = document.createElement('canvas');
+    shadow.width = Math.ceil(sw * S); shadow.height = Math.ceil(sh * S);
+    const sc = shadow.getContext('2d');
+    sc.scale(S, S); sc.translate(SM - this.pos.x, SM - this.pos.y);
+    sc.shadowColor = 'rgba(70,35,45,1)'; sc.shadowBlur = 12 * S; sc.shadowOffsetX = 4000 * S;
+    sc.fillStyle = '#000'; this.tracePath(sc, cs * 0.1, -4000, 0); sc.fill();
+    this.fur = { key, S, body, M, bw, bh, head, hr, shadow, SM, sw, sh };
     return this.fur;
   }
 
