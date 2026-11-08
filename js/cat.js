@@ -98,6 +98,12 @@ class Cat {
     this.sleepAfter = Levels.rnd(18, 45);
     this.pitch = Levels.rnd(0.85, 1.25);
     this.seed = Math.floor(Math.random() * 1000);
+    // iedere poes haar eigen staart: hoe sterk en welke kant op hij krult, hoe laat de krul begint, een lichte S, lengte en dikte
+    const side = Math.random() < 0.5 ? -1 : 1;
+    this.tail = {
+      curl: Levels.rnd(1.2, 2.7) * side, k: Levels.rnd(1.0, 2.3), wave: Levels.rnd(0, 0.6) * -side,
+      len: Levels.rnd(1.0, 1.35), thick: Levels.rnd(0.9, 1.15),
+    };
     this.anim = {
       sx: 1, sy: 1, squash: 0, squashV: 0, lift: 0, headDx: 0, headDy: 0,
       earTwitch: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
@@ -343,20 +349,21 @@ class Cat {
     const tc = this.cellCenter(this.cells[this.tailIdx]);
     const d = this.tailDir, p = { x: -d.y, y: d.x };
     const sleeping = this.state === 'sleeping';
-    const rest = sleeping ? 0.75 : 0.45;
-    const flick = a.tailFlick > 0 ? Math.sin((1 - a.tailFlick) * Math.PI) * 0.35 : 0;
-    const sway = rest * (1 - a.tailAct * 0.6) + Math.sin(a.tailPhase) * (0.55 + a.wag * 0.2) * a.tailAct + flick;
-    // vaste lengte: de staart buigt (door zwaaien en door achter de beweging aan te slepen), maar rekt nooit
+    const T = this.tail;
+    const rest = sleeping ? T.curl * 1.2 : T.curl;
+    const flick = a.tailFlick > 0 ? Math.sin((1 - a.tailFlick) * Math.PI) * 0.5 * Math.sign(T.curl) : 0;
+    // vaste lengte: de staart buigt (krul, zwaaien, achter de beweging aan slepen), maar rekt nooit
     const sideVel = this.vel.x * p.x + this.vel.y * p.y;
     const lag = clamp(-sideVel * 0.0022, -0.9, 0.9);
-    const bend = sway * 1.5 + lag;
-    const L = cs * 1.15, N = 16, pts = [];
+    const bend = rest * (1 - a.tailAct * 0.45) + Math.sin(a.tailPhase) * (0.8 + a.wag * 0.3) * a.tailAct + flick + lag;
+    const L = cs * 1.1 * T.len, N = 18, pts = [];
     let x = tc.x + d.x * cs * 0.28, y = tc.y + d.y * cs * 0.28;
     const th0 = Math.atan2(d.y, d.x);
     for (let i = 0; i <= N; i++) {
       const u = i / N;
-      pts.push({ x, y, w: cs * (0.105 - 0.05 * u) });
-      const th = th0 + bend * Math.pow((i + 0.5) / N, 1.4);
+      pts.push({ x, y, w: cs * (0.1 - 0.042 * u) * T.thick });
+      const uu = (i + 0.5) / N;
+      const th = th0 + bend * Math.pow(uu, T.k) + T.wave * Math.sin(uu * Math.PI * 1.6) * (1 - a.tailAct * 0.5);
       x += Math.cos(th) * L / N; y += Math.sin(th) * L / N;
     }
     const left = [], right = [];
