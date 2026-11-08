@@ -315,14 +315,49 @@
     if (held) rotateHeld(e.deltaY < 0 ? 3 : 1);
     else { const c = topCatAt(toLogical(e)); if (c) rotateInPlace(c, e.deltaY < 0 ? 3 : 1); }
   }, { passive: false });
-  window.addEventListener('keyup', e => { if (e.key === ' ' && overlay.classList.contains('hidden')) e.preventDefault(); });
+  // --- toetsen -----------------------------------------------------------
+  // We kijken naar e.code (fysieke toets) én e.key: onder een invoermethode (ibus/fcitx) meldt Chrome op
+  // Linux voor letters en spatie soms key 'Process' (keyCode 229), terwijl pijltjes gewoon doorkomen.
+  // Pijltjes gaan ook buiten de invoermethode om, vandaar dat die wél werkten en spatie/R niet.
+  const CW_CODES = new Set(['Space', 'KeyR', 'ArrowRight', 'ArrowUp']);
+  const CCW_CODES = new Set(['ArrowLeft', 'ArrowDown']);
+  const CW_KEYS = new Set([' ', 'Spacebar', 'r', 'R', 'ArrowRight', 'ArrowUp', 'Right', 'Up']);
+  const CCW_KEYS = new Set(['ArrowLeft', 'ArrowDown', 'Left', 'Down']);
+  const isSpace = e => e.code === 'Space' || e.key === ' ' || e.key === 'Spacebar';
+  const isEnter = e => e.code === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Enter';
+  const isCW = e => CW_CODES.has(e.code) || CW_KEYS.has(e.key);
+  const isCCW = e => CCW_CODES.has(e.code) || CCW_KEYS.has(e.key);
+  const modified = e => e.ctrlKey || e.altKey || e.metaKey;   // Ctrl+R enz. laten we met rust
+
+  let keyLog = null, ourClick = false;                         // alleen met ?debug
+  function logKey(e, what) {
+    if (!keyLog) return;
+    const t = e.target && e.target.id ? '#' + e.target.id : (e.target && e.target.tagName || '?').toLowerCase();
+    keyLog.textContent = `${e.type} key=${JSON.stringify(e.key)} code=${e.code || '-'} keyCode=${e.keyCode} repeat=${e.repeat ? 1 : 0} composing=${e.isComposing ? 1 : 0} target=${t} → ${what}`;
+  }
+
+  // Capture-fase op window: we zijn de eerste luisteraar en laten geen knop 'klikken' op spatie/enter.
   window.addEventListener('keydown', e => {
-    if ((e.key === ' ' || e.key === 'Enter') && !overlay.classList.contains('hidden')) { e.preventDefault(); btnStart.click(); return; }
+    if (modified(e)) { logKey(e, 'modifier: genegeerd'); return; }
+    const cardVisible = !overlay.classList.contains('hidden');
+    if ((isSpace(e) || isEnter(e)) && cardVisible) { e.preventDefault(); logKey(e, 'kaartje: start'); ourClick = true; btnStart.click(); ourClick = false; return; }
     lastKeyTime = performance.now();
-    if (!held) return;
-    if (e.key === ' ' || e.key.toLowerCase() === 'r' || e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); rotateHeld(); }
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); rotateHeld(3); }
-  });
+    if (isSpace(e) || isEnter(e)) e.preventDefault();         // nooit scrollen of een knop activeren tijdens het spel
+    if (!held) { logKey(e, 'geen poes vast'); return; }
+    if (isCW(e)) { e.preventDefault(); rotateHeld(); logKey(e, 'draai ↻'); }
+    else if (isCCW(e)) { e.preventDefault(); rotateHeld(3); logKey(e, 'draai ↺'); }
+    else logKey(e, 'geen speltoets');
+  }, true);
+  // Chrome activeert een knop bij het loslaten van de spatiebalk; ook dat voorkomen we.
+  window.addEventListener('keyup', e => {
+    if ((isSpace(e) || isEnter(e)) && !modified(e)) e.preventDefault();
+  }, true);
+  // Knoppen mogen geen toetsenbordfocus houden; anders zou spatie/enter ze 'klikken'.
+  for (const b of [btnStart, btnSound]) {
+    b.tabIndex = -1;
+    b.addEventListener('mousedown', e => e.preventDefault());    // voorkomt dat de knop focus krijgt; click komt gewoon
+    b.addEventListener('click', () => b.blur());
+  }
 
   btnSound.addEventListener('click', () => {
     const on = !Sound.isEnabled();
@@ -427,7 +462,14 @@
   const params = new URLSearchParams(location.search);
   levelIdx = Math.max(0, (parseInt(params.get('level'), 10) || 1) - 1);
   loadLevel(levelIdx);
-  if (params.has('debug')) window.PP = { cats: () => cats, held: () => held, grid: () => grid };
+  if (params.has('debug')) {
+    window.PP = { cats: () => cats, held: () => held, grid: () => grid };
+    keyLog = document.createElement('div'); keyLog.id = 'keylog'; keyLog.textContent = 'toetsen: nog niets ontvangen';
+    document.getElementById('ui').appendChild(keyLog);
+    // ook klikken die van het toetsenbord komen (detail 0) laten zien, en IME-compositie
+    for (const b of [btnStart, btnSound]) b.addEventListener('click', e => { if (e.detail === 0 && !ourClick && keyLog) keyLog.textContent += ` · TOETSENBORD-KLIK op #${b.id}`; });
+    window.addEventListener('compositionstart', () => { if (keyLog) keyLog.textContent += ' · compositionstart'; }, true);
+  }
   if (params.has('nosplash')) {
     started = true;
     overlay.style.display = 'none'; overlay.classList.add('hidden');
