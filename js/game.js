@@ -16,6 +16,7 @@
   let levelIdx = 0, cats = [], grid = null, carpetColor = 0;
   let held = null, grabOff = { x: 0, y: 0 }, dragStart = null, moved = false, lastP = { x: 640, y: 400 };
   let downTime = 0, carried = false, lastKeyTime = -1e9;   // carried: poes wordt gedragen zonder de knop ingedrukt te houden
+  let pendingRelease = null;   // loslaten wordt heel even uitgesteld: komt er net een draaitoets, dan blijft de poes vast
   let particles = [], motes = [];
   let complete = false, completeTimer = 0, walkTimer = 60, started = false;
   let lastT = 0, hintTimer = 0, wheelCooldown = 0, pendingHint = '';
@@ -245,6 +246,7 @@
   }
   function rotateHeld(times = 1) {
     if (!held) return;
+    if (pendingRelease) { clearTimeout(pendingRelease); pendingRelease = null; carried = true; }
     for (let k = 0; k < times; k++) held.rotate();
     Sound.pop(held.pitch);
     // de poes draait om haar midden; de muis blijft op dezelfde plek vastpakken
@@ -278,6 +280,7 @@
     if (!started || e.button === 2) return;
     Sound.ensure();
     const p = toLogical(e); lastP = p;
+    if (pendingRelease) { clearTimeout(pendingRelease); pendingRelease = null; }
     if (held) { release(p); return; }                    // gedragen poes neerleggen
     const cat = topCatAt(p);
     if (cat) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
@@ -298,7 +301,10 @@
     // een korte klik pakt op zonder vast te houden; een loslaten vlak na een toets (bv. touchpad dat
     // uitschakelt tijdens typen) negeren we, zodat de poes niet per ongeluk valt
     if (quick || performance.now() - lastKeyTime < 400) { carried = true; return; }
-    release(p);
+    // touchpads beëindigen een tik-sleep zodra je een toets indrukt; dat loslaten kan nét vóór de
+    // toets binnenkomen. Daarom 120 ms wachten: komt er een draaitoets, dan vervalt het loslaten.
+    if (pendingRelease) clearTimeout(pendingRelease);
+    pendingRelease = setTimeout(() => { pendingRelease = null; if (held) release(p); }, 120);
   });
   canvas.addEventListener('pointercancel', e => { if (held && e.pointerType !== 'mouse') release(toLogical(e)); });
   canvas.addEventListener('contextmenu', e => {
