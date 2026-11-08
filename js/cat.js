@@ -346,22 +346,18 @@ class Cat {
     const rest = sleeping ? 0.75 : 0.45;
     const flick = a.tailFlick > 0 ? Math.sin((1 - a.tailFlick) * Math.PI) * 0.35 : 0;
     const sway = rest * (1 - a.tailAct * 0.6) + Math.sin(a.tailPhase) * (0.55 + a.wag * 0.2) * a.tailAct + flick;
-    // de staart sleept een beetje achter de beweging aan
-    const lagX = clamp(-this.vel.x * 0.05, -cs * 0.45, cs * 0.45);
-    const lagY = clamp(-this.vel.y * 0.05, -cs * 0.45, cs * 0.45);
-    const L = cs * 1.2;
-    const base = { x: tc.x + d.x * cs * 0.28, y: tc.y + d.y * cs * 0.28 };
-    const c1 = { x: base.x + d.x * L * 0.42 + p.x * sway * L * 0.08 + lagX * 0.2, y: base.y + d.y * L * 0.42 + p.y * sway * L * 0.08 + lagY * 0.2 };
-    const c2 = { x: base.x + d.x * L * 0.78 + p.x * sway * L * 0.5 + lagX * 0.6, y: base.y + d.y * L * 0.78 + p.y * sway * L * 0.5 + lagY * 0.6 };
-    const end = { x: base.x + d.x * L * 0.66 + p.x * sway * L * 0.95 + lagX, y: base.y + d.y * L * 0.66 + p.y * sway * L * 0.95 + lagY };
-    const N = 16, pts = [];
+    // vaste lengte: de staart buigt (door zwaaien en door achter de beweging aan te slepen), maar rekt nooit
+    const sideVel = this.vel.x * p.x + this.vel.y * p.y;
+    const lag = clamp(-sideVel * 0.0022, -0.9, 0.9);
+    const bend = sway * 1.5 + lag;
+    const L = cs * 1.15, N = 16, pts = [];
+    let x = tc.x + d.x * cs * 0.28, y = tc.y + d.y * cs * 0.28;
+    const th0 = Math.atan2(d.y, d.x);
     for (let i = 0; i <= N; i++) {
-      const u = i / N, v = 1 - u;
-      pts.push({
-        x: v * v * v * base.x + 3 * v * v * u * c1.x + 3 * v * u * u * c2.x + u * u * u * end.x,
-        y: v * v * v * base.y + 3 * v * v * u * c1.y + 3 * v * u * u * c2.y + u * u * u * end.y,
-        w: cs * (0.105 - 0.05 * u),
-      });
+      const u = i / N;
+      pts.push({ x, y, w: cs * (0.105 - 0.05 * u) });
+      const th = th0 + bend * Math.pow((i + 0.5) / N, 1.4);
+      x += Math.cos(th) * L / N; y += Math.sin(th) * L / N;
     }
     const left = [], right = [];
     for (let i = 0; i <= N; i++) {
