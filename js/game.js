@@ -14,7 +14,7 @@
 
   let scale = 1, dpr = 1, bg = null;
   let levelIdx = 0, cats = [], grid = null, carpetColor = 0;
-  let held = null, grabOff = { x: 0, y: 0 }, dragStart = null, moved = false;
+  let held = null, grabOff = { x: 0, y: 0 }, dragStart = null, moved = false, lastP = { x: 640, y: 400 };
   let particles = [], motes = [];
   let complete = false, completeTimer = 0, walkTimer = 60, started = false;
   let lastT = 0, hintTimer = 0, wheelCooldown = 0, pendingHint = '';
@@ -62,7 +62,7 @@
     walkTimer = rnd(45, 80);
     held = null;
     levelEl.textContent = `Puzzel ${i + 1} · ${L.name}`;
-    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i <= 2 ? 'Klik op een poesje (zonder slepen) om het te draaien ↻' : '';
+    pendingHint = i === 0 ? 'Sleep een poesje naar het kleedje 🐾' : i <= 2 ? 'Draaien kan met de spatiebalk terwijl je sleept ↻' : '';
     if (started) { showHint(pendingHint, 9); pendingHint = ''; }
   }
 
@@ -239,12 +239,15 @@
     if (Math.random() < 0.6) Sound.mrrp(cat.pitch, 'hi');
     const hp = cat.headPos(); burst(hp.x, hp.y - 20, 2, 'heart');
     canvas.style.cursor = 'grabbing';
-    if (levelIdx < 4) showHint('Draaien: klik zonder slepen, scroll, of rechtermuisknop ↻', 5);
+    if (levelIdx < 4) showHint('Draaien: spatie, scrollen of een klik zonder slepen ↻', 5);
   }
-  function rotateHeld() {
+  function rotateHeld(times = 1) {
     if (!held) return;
-    held.rotate(); Sound.pop(held.pitch);
-    if (held.cells.length > 1) grabOff = { x: held.width / 2, y: held.height / 2 };
+    for (let k = 0; k < times; k++) held.rotate();
+    Sound.pop(held.pitch);
+    // de poes draait om haar midden; de muis blijft op dezelfde plek vastpakken
+    grabOff = { x: lastP.x - held.pos.x, y: lastP.y - held.pos.y };
+    moved = true;
   }
   function release(p) {
     const cat = held; held = null;
@@ -271,12 +274,12 @@
   canvas.addEventListener('pointerdown', e => {
     if (!started || e.button === 2) return;
     Sound.ensure();
-    const p = toLogical(e);
+    const p = toLogical(e); lastP = p;
     const cat = topCatAt(p);
     if (cat && !held) { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} pickUp(cat, p); }
   });
   canvas.addEventListener('pointermove', e => {
-    const p = toLogical(e);
+    const p = toLogical(e); lastP = p;
     if (held) {
       held.pos.x = p.x - grabOff.x; held.pos.y = p.y - grabOff.y;
       if (dragStart && Math.hypot(p.x - dragStart.x, p.y - dragStart.y) > 7) moved = true;
@@ -287,16 +290,18 @@
   const up = e => { if (held) release(toLogical(e)); };
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
-  canvas.addEventListener('contextmenu', e => { e.preventDefault(); if (held) { rotateHeld(); moved = true; } });
+  canvas.addEventListener('contextmenu', e => { e.preventDefault(); if (held) rotateHeld(); });
   canvas.addEventListener('wheel', e => {
     if (!held) return;
     e.preventDefault();
     const now = performance.now();
-    if (now - wheelCooldown > 180) { wheelCooldown = now; rotateHeld(); moved = true; }
+    if (now - wheelCooldown > 180) { wheelCooldown = now; rotateHeld(e.deltaY < 0 ? 3 : 1); }
   }, { passive: false });
   window.addEventListener('keydown', e => {
     if ((e.key === ' ' || e.key === 'Enter') && !overlay.classList.contains('hidden')) { e.preventDefault(); btnStart.click(); return; }
-    if ((e.key === ' ' || e.key.toLowerCase() === 'r') && held) { e.preventDefault(); rotateHeld(); moved = true; }
+    if (!held) return;
+    if (e.key === ' ' || e.key.toLowerCase() === 'r' || e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); rotateHeld(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); rotateHeld(3); }
   });
 
   btnSound.addEventListener('click', () => {
