@@ -517,7 +517,17 @@ class Cat {
       }
     } else if (this.state === 'idle') {
       a.rot = lerp(a.rot, 0, Math.min(1, dt * 6));
-      this.idleTime += dt;
+      // dicht tegen een andere poes aan word je sneller slaperig; naast een slapende poes nog sneller
+      let snug = 1;
+      if (game && game.cats) {
+        const bb = this.bbox(-this.cs * 0.35);
+        for (const o of game.cats) {
+          if (o === this || o.held || o.state === 'walking' || o.state === 'stretching') continue;
+          const ob = o.bbox();
+          if (bb.x < ob.x + ob.w && bb.x + bb.w > ob.x && bb.y < ob.y + ob.h && bb.y + bb.h > ob.y) snug = Math.max(snug, o.state === 'sleeping' ? 4.5 : 3);
+        }
+      }
+      this.idleTime += dt * snug;
       if (this.idleTime > this.sleepAfter) { this.state = 'sleeping'; this.stateTime = 0; this.zzzTimer = 0.5; }
     } else if (this.state === 'sleeping') {
       a.breath = Math.sin(this.stateTime * 1.6) * 0.008;
