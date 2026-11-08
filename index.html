@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>PoesjePuzzel</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+  <div id="ui">
+    <div id="topbar">
+      <div id="title">PoesjePuzzel <span class="paw">🐾</span></div>
+      <div id="level">Puzzel 1</div>
+      <button id="btn-sound" title="Geluid aan of uit">🔊</button>
+    </div>
+    <div id="hint"></div>
+    <div id="overlay" class="splash">
+      <div class="card">
+        <div class="splash-only mascot">
+          <canvas id="splash-canvas" width="480" height="200"></canvas>
+        </div>
+        <div class="title-row">
+          <svg class="splash-only paw paw-left" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="26" rx="9" ry="7.5"/><circle cx="8.5" cy="17" r="4.2"/><circle cx="15.5" cy="10.5" r="4.4"/><circle cx="24.5" cy="10.5" r="4.4"/><circle cx="31.5" cy="17" r="4.2"/></svg>
+          <h1 id="overlay-title">PoesjePuzzel</h1>
+          <svg class="splash-only paw paw-right" viewBox="0 0 40 40" aria-hidden="true"><ellipse cx="20" cy="26" rx="9" ry="7.5"/><circle cx="8.5" cy="17" r="4.2"/><circle cx="15.5" cy="10.5" r="4.4"/><circle cx="24.5" cy="10.5" r="4.4"/><circle cx="31.5" cy="17" r="4.2"/></svg>
+        </div>
+        <p id="overlay-text">Leg de poesjes knus op het kleedje</p>
+        <button id="btn-start" class="big">🐾 Spelen</button>
+        <p class="splash-only tip">Slepen met de muis · klikken om te draaien</p>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/sound.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/cat.js"></script>
+<script src="js/room.js"></script>
+<script src="js/splash.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
