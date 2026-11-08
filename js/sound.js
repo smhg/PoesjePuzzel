@@ -40,29 +40,53 @@ const Sound = (() => {
   }
 
   // --- Spinnen -------------------------------------------------------------
+  // Een echte spin is een reeks zachte pulsjes (~24 per seconde) die in een warme borstkas
+  // resoneren, met een langzaam in- en uitademen eroverheen.
+  let pulseCurve = null;
+  function getPulseCurve() {
+    if (pulseCurve) return pulseCurve;
+    pulseCurve = new Float32Array(512);
+    for (let i = 0; i < 512; i++) { const x = i / 511; pulseCurve[i] = Math.pow(x, 3); }
+    return pulseCurve;
+  }
   function purrStart(pitch = 1) {
     if (!ensure()) return;
     purrStop(0.15);
     const t = now();
     const out = gain(0.0001, master);
-    const mod = gain(0.5, out);                 // wordt gepulseerd door de lfo
-    const lfo = osc('sine', 26 * pitch);
-    const lfoG = gain(0.5, mod.gain); lfo.connect(lfoG);
-    const breath = osc('sine', 0.9);            // zacht in- en uitademen
-    const breathG = gain(0.1, out.gain); breath.connect(breathG);
+    const breathG = gain(0.75, out);                      // ademhaling: volume golft mee
 
+    // borstkas: pulstrein door een resonerend filter
+    const rate = 24 * pitch;
+    const saw = osc('sawtooth', rate);
+    const body = filter('lowpass', 150 * pitch, 5);
+    const body2 = filter('lowpass', 320 * pitch, 0.8, breathG);
+    const bodyG = gain(0.55, body2);
+    saw.connect(body); body.connect(bodyG);
+    const sub = osc('sine', rate * 2);                  // zachte warme ondertoon
+    const subG = gain(0.18, breathG); sub.connect(subG);
+
+    // een beetje lucht, gepulseerd in hetzelfde ritme
     const src = ctx.createBufferSource(); src.buffer = getNoise(); src.loop = true;
-    const lp = filter('lowpass', 280 * pitch, 1.2, mod);
-    src.connect(lp);
-    const sub = osc('sine', 48 * pitch);
-    const subG = gain(0.55, mod); sub.connect(subG);
-    const sub2 = osc('triangle', 96 * pitch);
-    const sub2G = gain(0.12, mod); sub2.connect(sub2G);
+    const air = filter('bandpass', 520 * pitch, 0.9);
+    const airMod = gain(0, breathG);
+    const airG = gain(0.07, airMod); src.connect(air); air.connect(airG);
+    const lfo = osc('sine', rate);
+    const shaper = ctx.createWaveShaper(); shaper.curve = getPulseCurve();
+    lfo.connect(shaper); shaper.connect(airMod.gain);
+
+    // ademen: ~0,8 Hz, verandert volume, tempo en klankkleur een beetje
+    const breath = osc('sine', 0.8);
+    const bG = gain(0.22, breathG.gain); breath.connect(bG);
+    const rG = gain(1.6 * pitch, saw.frequency); breath.connect(rG);
+    const lG = gain(1.6 * pitch, lfo.frequency); breath.connect(lG);
+    const fG = gain(30 * pitch, body.frequency); breath.connect(fG);
 
     out.gain.setValueAtTime(0.0001, t);
-    out.gain.exponentialRampToValueAtTime(0.32, t + 0.5);
-    [lfo, breath, src, sub, sub2].forEach(n => n.start(t));
-    purr = { out, nodes: [lfo, breath, src, sub, sub2] };
+    out.gain.exponentialRampToValueAtTime(0.42, t + 0.6);
+    const nodes = [saw, sub, src, lfo, breath];
+    nodes.forEach(n => n.start(t));
+    purr = { out, nodes };
   }
   function purrStop(fade = 0.5) {
     if (!purr || !ctx) return;
