@@ -297,6 +297,7 @@
     const now = performance.now();
     if (now - wheelCooldown > 180) { wheelCooldown = now; rotateHeld(e.deltaY < 0 ? 3 : 1); }
   }, { passive: false });
+  window.addEventListener('keyup', e => { if (e.key === ' ' && overlay.classList.contains('hidden')) e.preventDefault(); });
   window.addEventListener('keydown', e => {
     if ((e.key === ' ' || e.key === 'Enter') && !overlay.classList.contains('hidden')) { e.preventDefault(); btnStart.click(); return; }
     if (!held) return;
@@ -311,6 +312,8 @@
     btnSound.classList.toggle('off', !on);
   });
   btnStart.addEventListener('click', () => {
+    if (overlay.classList.contains('hidden')) return;   // knop is onzichtbaar: niets doen
+    btnStart.blur();                                     // anders 'klikt' de spatiebalk de knop opnieuw
     if (window.Splash) Splash.stop();
     Sound.ensure(); Sound.ambientStart();
     if (!started) { started = true; if (pendingHint) { showHint(pendingHint, 9); pendingHint = ''; } }

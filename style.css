@@ -67,6 +67,7 @@ button {
   transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
 button:hover { transform: translateY(-0.1em) scale(1.03); }
+button:focus { outline: none; }
 button:active { transform: translateY(0.15em); box-shadow: 0 0.1em 0 #d9a9a4; }
 #btn-sound {
   font-size: 1.3em;
