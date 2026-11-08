@@ -248,11 +248,14 @@ class Cat {
     };
     this.anim = {
       sx: 1, sy: 1, squash: 0, squashV: 0, lift: 0, headDx: 0, headDy: 0,
-      earTwitch: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
+      earTwitch: 0, earL: 0, earR: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
+      lookX: 0, lookY: 0, attn: 0, sniff: 0, nextSniff: Levels.rnd(3, 10), sniffPhase: 0,
       walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16), breath: 0,
     };
     this.walkTarget = null;
     this.bubble = null;
+    this.curiosity = Levels.rnd(0.25, 0.65);   // hoe snel deze poes ergens naar kijkt
+    this.attnEvent = null;                      // waar ze nu naar kijkt (bron van interesse)
     this.zzzTimer = 0;
     this.fur = null;            // cache van de vacht (lijfje + kop), zie ensureFur()
     this.drawScale = 1;
@@ -350,7 +353,24 @@ class Cat {
   }
   walkTo(target, withStretch = false) {
     this.walkTarget = target; this.placed = false; this.idleTime = 0;
-    this.state = withStretch ? 'stretching' : 'walking'; this.stateTime = 0;
+    this.preKind = withStretch ? 'stretch' : 'huh';          // eerst even rekken, of een vragend kopje
+    this.preDur = withStretch ? 0.9 : 0.45;
+    this.state = 'stretching'; this.stateTime = 0;
+    this.anim.earTwitch = 1;
+    this.hop = null;
+  }
+  // huppelend naar de bestemming: een paar sprongetjes langs een lichte boog
+  startHops() {
+    const cs = this.cs, p0 = { x: this.pos.x, y: this.pos.y }, p1 = this.walkTarget;
+    const d = Math.hypot(p1.x - p0.x, p1.y - p0.y) || 1;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const px = -(p1.y - p0.y) / d, py = (p1.x - p0.x) / d;
+    const bow = d * Levels.rnd(0.12, 0.3) * side;
+    this.hop = {
+      p0, p1, c: { x: (p0.x + p1.x) / 2 + px * bow, y: (p0.y + p1.y) / 2 + py * bow },
+      n: clamp(Math.round(d / (cs * 1.5)), 2, 5), i: 0, t: -0.05, dur: 0.36, pause: 0.1, side,
+    };
+    this.state = 'walking'; this.stateTime = 0;
   }
   say() { /* geen tekstwolkjes; de poezen laten alleen een geluidje horen */ }
   wake() {
@@ -397,30 +417,79 @@ class Cat {
     a.nextBlink -= dt;
     if (a.nextBlink <= 0) { a.blink = 1; a.nextBlink = Levels.rnd(2.5, 6.5); }
     a.blink = Math.max(0, a.blink - dt * 7);
-    if (Math.random() < dt * 0.25) a.earTwitch = 1;
+    if (a.earTwitch > 0.99) { const w = Math.random(); if (w < 0.4) a.earR = 1; else if (w < 0.8) a.earL = 1; else { a.earL = 1; a.earR = 1; } }
+    if (this.state !== 'sleeping' && Math.random() < dt * 0.55) { const w = Math.random(); if (w < 0.4) a.earR = 1; else if (w < 0.8) a.earL = 1; else { a.earL = 1; a.earR = 1; } }
     a.earTwitch = Math.max(0, a.earTwitch - dt * 4);
+    a.earL = Math.max(0, a.earL - dt * 4.5); a.earR = Math.max(0, a.earR - dt * 4.5);
+    // snuffelen: korte buien waarin het neusje trilt en de snorharen meebewegen; vaker als ze ergens naar kijkt
+    a.nextSniff -= dt * (1 + a.attn * 2.5) * (this.state === 'sleeping' ? 0.15 : 1);
+    if (a.nextSniff <= 0) { a.sniff = 1; a.nextSniff = Levels.rnd(5, 14); }
+    if (a.sniff > 0) { a.sniff = Math.max(0, a.sniff - dt / 0.7); a.sniffPhase += dt * 42; }
+
+    // interesse: kijkt deze poes naar iets dat gebeurt (een poes die gedragen wordt of huppelt)?
+    const ev = game && game.interest;
+    if (ev && ev.source !== this && this.state !== 'sleeping' && !this.held) {
+      if (!this.attnEvent || this.attnEvent.id !== ev.id) {
+        const hp = this.headPos();
+        const dist = Math.hypot(ev.x - hp.x, ev.y - hp.y);
+        // ieder voor zich: niet allemaal tegelijk, en niet van heel ver
+        const yes = dist < 520 && Math.random() < this.curiosity;
+        this.attnEvent = { id: ev.id, yes, delay: Levels.rnd(0.15, 0.7), t: 0 };
+      }
+      this.attnEvent.t += dt;
+      if (this.attnEvent.yes && this.attnEvent.t > this.attnEvent.delay) {
+        if (a.attn < 0.05) { a.earL = 1; a.earR = 1; }           // oortjes spitsen: 'hé, wat is dat?'
+        a.attn = lerp(a.attn, 1, Math.min(1, dt * 5));
+        this.attnTarget = { x: ev.x, y: ev.y };
+      }
+    } else {
+      a.attn = lerp(a.attn, 0, Math.min(1, dt * 1.6));
+      if (a.attn < 0.02 && this.attnEvent && !(ev && ev.id === this.attnEvent.id)) this.attnEvent = null;
+    }
+    if (this.attnTarget) {
+      const hp = this.headPos();
+      const dx = this.attnTarget.x - hp.x, dy = this.attnTarget.y - hp.y, dd = Math.hypot(dx, dy) || 1;
+      a.lookX = lerp(a.lookX, dx / dd * a.attn, Math.min(1, dt * 5));
+      a.lookY = lerp(a.lookY, dy / dd * a.attn, Math.min(1, dt * 5));
+    }
 
     if (this.bubble) { this.bubble.t -= dt; if (this.bubble.t <= 0) this.bubble = null; }
 
     // toestanden; ademen/waggelen wordt hier gezet (niet opgeteld) en pas in draw() toegepast,
     // anders stapelt het via de lerp van a.sy op tot een flink groeien en krimpen
     a.breath = 0;
+    a.hop = 0;
     if (this.state === 'stretching') {
-      a.stretch = Math.sin(Math.min(1, this.stateTime / 0.9) * Math.PI);
-      if (this.stateTime > 0.9) { a.stretch = 0; this.state = 'walking'; this.stateTime = 0; }
-    } else if (this.state === 'walking' && this.walkTarget) {
-      const dx = this.walkTarget.x - this.pos.x, dy = this.walkTarget.y - this.pos.y;
-      const d = Math.hypot(dx, dy);
-      const sp = 95 * dt;
-      if (d <= sp) {
-        this.pos.x = this.walkTarget.x; this.pos.y = this.walkTarget.y;
-        this.walkTarget = null; this.state = 'idle'; this.stateTime = 0;
-        a.squash = 0.05; a.rot = 0;
+      const dur = this.preDur || 0.9, prog = Math.min(1, this.stateTime / dur);
+      if (this.preKind === 'huh') {
+        // vragend kopje: even scheef, oortje trilt
+        a.rot = Math.sin(prog * Math.PI) * 0.11 * (this.seed % 2 ? 1 : -1);
       } else {
-        this.pos.x += dx / d * sp; this.pos.y += dy / d * sp;
-        a.walkPhase += dt * 11;
-        a.rot = Math.sin(a.walkPhase) * 0.05;
-        a.breath = Math.sin(a.walkPhase * 2) * 0.01;
+        a.stretch = Math.sin(prog * Math.PI);
+      }
+      if (this.stateTime > dur) { a.stretch = 0; a.rot = 0; if (this.walkTarget) this.startHops(); else { this.state = 'idle'; this.stateTime = 0; } }
+    } else if (this.state === 'walking' && this.walkTarget) {
+      if (!this.hop) this.startHops();
+      const h = this.hop;
+      h.t += dt;
+      if (h.t >= 0) {
+        const u = Math.min(1, h.t / h.dur), e = u * u * (3 - 2 * u);
+        const sTot = (h.i + e) / h.n, v = 1 - sTot;
+        this.pos.x = v * v * h.p0.x + 2 * v * sTot * h.c.x + sTot * sTot * h.p1.x;
+        this.pos.y = v * v * h.p0.y + 2 * v * sTot * h.c.y + sTot * sTot * h.p1.y;
+        a.hop = Math.sin(u * Math.PI) * this.cs * 0.3;
+        a.rot = Math.sin(u * Math.PI) * 0.07 * (h.i % 2 ? -h.side : h.side);
+        if (u >= 1) {
+          // landen: plofje, stofwolkjes, even wachten voor de volgende sprong
+          a.squash = 0.07; a.hop = 0; a.rot = 0;
+          if (game && game.spawnPuff) { const c = this.center(); game.spawnPuff(c.x, this.bottom - this.cs * 0.1); }
+          h.i++; h.t = -h.pause;
+          if (h.i >= h.n) {
+            this.pos.x = h.p1.x; this.pos.y = h.p1.y;
+            this.walkTarget = null; this.hop = null; this.state = 'idle'; this.stateTime = 0;
+            a.squash = 0.09; a.earTwitch = 1;
+          }
+        }
       }
     } else if (this.state === 'idle') {
       a.rot = lerp(a.rot, 0, Math.min(1, dt * 6));
@@ -456,7 +525,7 @@ class Cat {
   }
 
   drawShadow(ctx) {
-    const a = this.anim, lift = a.lift;
+    const a = this.anim, lift = Math.min(1, a.lift + (a.hop || 0) / (this.cs * 0.3) * 0.6);
     // schaduw-offsets zijn in apparaatpixels, dus meeschalen met de huidige transformatie
     const S = ctx.getTransform ? ctx.getTransform().a : 1;
     const OFF = 4000;
@@ -483,7 +552,7 @@ class Cat {
     const sq = a.squash;
     const stretch = a.stretch || 0;
     const s = 1 + a.lift * 0.04;
-    ctx.translate(c.x, c.y - a.lift * 14);
+    ctx.translate(c.x, c.y - a.lift * 14 - (a.hop || 0));
     ctx.rotate(a.rot);
     ctx.scale(a.sx * s * (1 - sq * 0.6) * (1 + stretch * 0.06) * (1 - a.breath * 0.5), a.sy * s * (1 + sq) * (1 - stretch * 0.03) * (1 + a.breath));
     ctx.translate(-c.x, -c.y);
@@ -854,8 +923,8 @@ class Cat {
     const cs = this.cs, a = this.anim, col = this.color;
     const hc = this.cellCenter(this.cells[this.headIdx]);
     const f = this.facing;
-    const hx = hc.x + f.x * cs * 0.12 + a.headDx;
-    const hy = hc.y + f.y * cs * 0.12 + a.headDy - cs * 0.04;
+    const hx = hc.x + f.x * cs * 0.12 + a.headDx + a.lookX * cs * 0.06;
+    const hy = hc.y + f.y * cs * 0.12 + a.headDy - cs * 0.04 + a.lookY * cs * 0.04;
     const r = cs * 0.44;
     const headCol = col.pattern === 'siamese' ? mix(col.base, col.dark, 0.55) : col.base;
     const headDark = col.dark;
@@ -902,8 +971,8 @@ class Cat {
       ctx.stroke();
       ctx.restore();
     };
-    drawEar(-1, 0);
-    drawEar(1, Math.sin(a.earTwitch * Math.PI) * 0.35);
+    drawEar(-1, Math.sin(a.earL * Math.PI) * 0.3);
+    drawEar(1, Math.sin(Math.max(a.earR, a.earTwitch) * Math.PI) * 0.35);
 
     // kop met vacht uit de cache
     const fur = this.ensureFur(this.drawScale);
@@ -924,7 +993,7 @@ class Cat {
       });
     } else {
       const er = r * 0.23 * (1 + a.lift * 0.1);
-      const gaze = { x: f.x * r * 0.03 + clamp(this.vel.x * 0.00005, -0.03, 0.03) * r, y: f.y * r * 0.03 };
+      const gaze = { x: f.x * r * 0.03 + clamp(this.vel.x * 0.00005, -0.03, 0.03) * r + a.lookX * er * 0.3, y: f.y * r * 0.03 + a.lookY * er * 0.25 };
       [-1, 1].forEach(sgn => {
         const cx = hx + sgn * ex + eyeShift, cy = ey;
         const eh = er * openness;
@@ -947,7 +1016,8 @@ class Cat {
     }
 
     // neusje en lachend mondje
-    const nx = hx + f.x * r * 0.04, ny = hy + r * 0.38;
+    const sniffAmt = Math.sin(a.sniff * Math.PI) * Math.sin(a.sniffPhase);
+    const nx = hx + f.x * r * 0.04, ny = hy + r * 0.38 - sniffAmt * r * 0.018;
     ctx.fillStyle = '#e88aa0';
     ctx.beginPath();
     ctx.moveTo(nx - r * 0.1, ny - r * 0.05); ctx.lineTo(nx + r * 0.1, ny - r * 0.05);
@@ -966,11 +1036,15 @@ class Cat {
     // snorharen
     ctx.strokeStyle = hexToRgb(col.base).reduce((s, v) => s + v, 0) > 450 ? rgba(headDark, 0.45) : 'rgba(255,255,255,0.55)';
     ctx.lineWidth = 1.3;
+    const fan = a.attn * 0.16 + sniffAmt * 0.035 + Math.sin(a.sniff * Math.PI) * 0.08;   // in radialen: naar voren (omlaag op het scherm)
     [-1, 1].forEach(sgn => {
       for (let k = -1; k <= 1; k++) {
+        const x0 = hx + sgn * r * 0.45, y0 = ny - r * 0.02 + k * r * 0.08;
+        const dx = sgn * r * 0.8, dy = -r * 0.1 + k * r * 0.14;
+        const ang = Math.atan2(dy, dx) + sgn * fan, len = Math.hypot(dx, dy);
         ctx.beginPath();
-        ctx.moveTo(hx + sgn * r * 0.45, ny - r * 0.02 + k * r * 0.08);
-        ctx.lineTo(hx + sgn * r * 1.25, ny - r * 0.12 + k * r * 0.22);
+        ctx.moveTo(x0, y0);
+        ctx.quadraticCurveTo(x0 + Math.cos(ang) * len * 0.55, y0 + Math.sin(ang) * len * 0.55 - r * 0.02, x0 + Math.cos(ang) * len, y0 + Math.sin(ang) * len + r * 0.03);
         ctx.stroke();
       }
     });

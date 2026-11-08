@@ -179,6 +179,11 @@
       });
     }
   }
+  function spawnPuff(x, y) {
+    for (let i = 0; i < 3; i++) {
+      particles.push({ type: 'puff', x: x + rnd(-14, 14), y: y + rnd(-3, 3), vx: rnd(-22, 22), vy: rnd(-14, -4), life: 0, max: rnd(0.45, 0.7), size: rnd(5, 9) });
+    }
+  }
   function spawnZzz(x, y) {
     particles.push({ type: 'z', x, y, vx: rnd(6, 14), vy: -18, life: 0, max: 2.2, size: rnd(10, 15) });
   }
@@ -204,6 +209,9 @@
         ctx.beginPath();
         for (let k = 0; k < 8; k++) { const r = k % 2 ? s * 0.35 : s; const a = k * Math.PI / 4; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
         ctx.closePath(); ctx.fill();
+      } else if (p.type === 'puff') {
+        ctx.fillStyle = 'rgba(255,246,232,0.85)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 + f * 1.4), 0, Math.PI * 2); ctx.fill();
       } else if (p.type === 'z') {
         ctx.fillStyle = '#7a4f4f'; ctx.font = `800 ${Math.round(p.size + f * 6)}px "Nunito","Segoe UI",sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -389,9 +397,17 @@
   });
 
   // --- lus ----------------------------------------------------------------
-  const gameApi = { spawnZzz };
+  const gameApi = { spawnZzz, spawnPuff, interest: null };
+  let interestId = 0;
   function update(dt, t) {
     btnRotate.classList.toggle('show', !!held);
+    // wat is er te zien? een gedragen poes of een huppelende poes trekt de aandacht van anderen
+    const mover = held || cats.find(c => c.state === 'walking' || c.state === 'stretching');
+    if (mover) {
+      const hp = mover.headPos();
+      if (!gameApi.interest || gameApi.interest.source !== mover) interestId++;
+      gameApi.interest = { id: interestId, x: hp.x, y: hp.y, source: mover };
+    } else gameApi.interest = null;
     for (const c of cats) c.update(dt, t, gameApi);
     for (const p of particles) {
       p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt;
