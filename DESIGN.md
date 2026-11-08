@@ -20,12 +20,14 @@ Geen tijdsdruk, geen game-over, niets dat flitst of schrikt.
 - `index.html`, `style.css` – schil en UI (titelbalk, hint, kaartje/splash).
 - `js/sound.js` – alle geluid met WebAudio, live gesynthetiseerd: spinnen (noise + 26 Hz puls), miauwtjes, plofje, belletjes, zachte achtergrondakkoorden met sporadische pentatonische nootjes.
 - `js/levels.js` – de vormen als ASCII (`#` = vakje) en het opdelen van een vorm in samenhangende stukjes.
-- `js/cat.js` – de poes: vorm, kop/staart-keuze, animatie (uitrekken bij bewegen, stuiterveertje, knipperen, oortjes, slapen) en het tekenen (vloeiende omtrek via `outlinePath`, schaduw, vacht, gezichtje).
+- `js/cat.js` – de poes: vorm, kop/staart-keuze, animatie (uitrekken bij bewegen, stuiterveertje, knipperen, oortjes, slapen) en het tekenen. De pluizige vacht (plukjes langs de rand, haartjes, zachte patronen) is duur en wordt per poes in twee offscreen canvassen gecachet (lijf en kop); alleen bij draaien of een andere schermschaal wordt hij opnieuw getekend. Ogen, oren, staart, schaduw en squash blijven per frame.
 - `js/room.js` – kamer (muur, raam, vloer, zonlicht, planten, krabpaal) en het kleedje.
 - `js/splash.js` – startscherm met geanimeerde mascotte.
-- `js/game.js` – spelverloop, invoer, plaatsen, neerzetten, wegwandelen, deeltjes, lus.
+- `js/game.js` – spelverloop, invoer, plaatsen, neerzetten, wegwandelen, deeltjes, lus. Voortgang (puzzelnummer) staat in `localStorage` onder `poesjepuzzel.level`.
+- `manifest.json`, `sw.js`, `icons/` – installeerbaar als app op het beginscherm en offline speelbaar. De service worker haalt online altijd de nieuwste bestanden (network-first) en valt offline terug op de cache.
+- Draaiknop `#btn-rotate` rechtsonder verschijnt zodra je een poes vasthoudt (voor tablets zonder toetsenbord).
 
-Geen build-stap: `index.html` direct openen in een browser. Gewone `<script>`-tags, geen modules (werkt via `file://`).
+Online: GitHub Pages vanaf de `main`-branch van github.com/smhg/PoesjePuzzel. Geen build-stap: `index.html` direct openen in een browser werkt ook. Gewone `<script>`-tags, geen modules (werkt via `file://`).
 
 ## Handig bij ontwikkelen
 - `index.html?nosplash` slaat het startscherm over.

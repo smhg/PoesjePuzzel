@@ -3,7 +3,15 @@
 <head>
 <meta charset="utf-8">
 <title>PoesjePuzzel</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#f6b7c3">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PoesjePuzzel">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,6 +24,7 @@
       <button id="btn-sound" tabindex="-1" title="Geluid aan of uit">🔊</button>
     </div>
     <div id="hint"></div>
+    <button id="btn-rotate" tabindex="-1" title="Draaien" aria-label="Poes draaien">↻</button>
     <div id="overlay" class="splash">
       <div class="card">
         <div class="splash-only mascot">
@@ -39,5 +48,11 @@
 <script src="js/room.js"></script>
 <script src="js/splash.js"></script>
 <script src="js/game.js"></script>
+<script>
+// Installeerbaar en offline speelbaar (alleen via http(s); bij file:// doet de browser niets).
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
 </body>
 </html>

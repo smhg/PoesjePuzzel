@@ -216,3 +216,27 @@ button.big {
   pointer-events: none;
   white-space: pre-wrap;
 }
+
+/* draaiknop voor tablets en muis: verschijnt zodra je een poes vasthoudt */
+#btn-rotate {
+  position: absolute;
+  right: 1.3em;
+  bottom: 1.3em;
+  width: 4.2em;
+  height: 4.2em;
+  padding: 0;
+  font-size: 1.4em;
+  line-height: 1;
+  border-radius: 50%;
+  background: #f6b7c3;
+  color: #6d3c4a;
+  box-shadow: 0 0.3em 0 #d98aa0, 0 0.6em 1.2em rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  transform: scale(0.8);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  touch-action: manipulation;
+}
+#btn-rotate span { display: block; font-size: 1.9em; }
+#btn-rotate.show { opacity: 1; transform: scale(1); pointer-events: auto; }
+#btn-rotate:active { transform: scale(0.95) translateY(0.15em); box-shadow: 0 0.1em 0 #d98aa0; }

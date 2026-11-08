@@ -1,0 +1,17 @@
+{
+  "name": "PoesjePuzzel",
+  "short_name": "PoesjePuzzel",
+  "description": "Leg de poesjes knus op het kleedje. Een rustig puzzelspel met lieve poezen.",
+  "lang": "nl",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#2e2431",
+  "theme_color": "#f6b7c3",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -11,6 +11,7 @@
   const overlayText = document.getElementById('overlay-text');
   const btnStart = document.getElementById('btn-start');
   const btnSound = document.getElementById('btn-sound');
+  const btnRotate = document.getElementById('btn-rotate');
 
   let scale = 1, dpr = 1, bg = null;
   let levelIdx = 0, cats = [], grid = null, carpetColor = 0;
@@ -47,7 +48,11 @@
   }
 
   // --- levels -------------------------------------------------------------
+  const SAVE_KEY = 'poesjepuzzel.level';
+  function saveProgress(i) { try { localStorage.setItem(SAVE_KEY, String(i)); } catch (e) {} }
+  function loadProgress() { try { const v = parseInt(localStorage.getItem(SAVE_KEY), 10); return Number.isFinite(v) && v >= 0 ? v : 0; } catch (e) { return 0; } }
   function loadLevel(i) {
+    saveProgress(i);
     const L = LEVELS[i % LEVELS.length];
     const { cells, cols, rows } = Levels.parse(L);
     grid = {
@@ -359,12 +364,14 @@
     if ((isSpace(e) || isEnter(e)) && !modified(e)) e.preventDefault();
   }, true);
   // Knoppen mogen geen toetsenbordfocus houden; anders zou spatie/enter ze 'klikken'.
-  for (const b of [btnStart, btnSound]) {
+  for (const b of [btnStart, btnSound, btnRotate]) {
     b.tabIndex = -1;
     b.addEventListener('mousedown', e => e.preventDefault());    // voorkomt dat de knop focus krijgt; click komt gewoon
     b.addEventListener('click', () => b.blur());
   }
 
+  btnRotate.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (held) { if (pendingRelease) { clearTimeout(pendingRelease); pendingRelease = null; } carried = true; rotateHeld(); } });
+  btnRotate.addEventListener('click', e => { e.preventDefault(); btnRotate.blur(); });
   btnSound.addEventListener('click', () => {
     const on = !Sound.isEnabled();
     Sound.ensure(); Sound.setEnabled(on);
@@ -384,6 +391,7 @@
   // --- lus ----------------------------------------------------------------
   const gameApi = { spawnZzz };
   function update(dt, t) {
+    btnRotate.classList.toggle('show', !!held);
     for (const c of cats) c.update(dt, t, gameApi);
     for (const p of particles) {
       p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt;
@@ -466,7 +474,7 @@
 
   // ?level=3 begint bij puzzel 3, ?nosplash slaat het startscherm over (handig bij ontwikkelen)
   const params = new URLSearchParams(location.search);
-  levelIdx = Math.max(0, (parseInt(params.get('level'), 10) || 1) - 1);
+  levelIdx = params.has('level') ? Math.max(0, (parseInt(params.get('level'), 10) || 1) - 1) : loadProgress();
   loadLevel(levelIdx);
   if (params.has('debug')) {
     window.PP = { cats: () => cats, held: () => held, grid: () => grid };

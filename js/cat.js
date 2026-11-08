@@ -21,7 +21,9 @@ function rr(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+// Begrijpt '#rrggbb' en 'rgb(r,g,b)' (zoals mix() teruggeeft).
 function hexToRgb(hex) {
+  if (hex[0] !== '#') { const m = hex.match(/[\d.]+/g); return [+m[0], +m[1], +m[2]]; }
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
@@ -32,9 +34,9 @@ function mix(h1, h2, t) {
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 
-// Tekent de buitenrand van een groep vakjes als één vloeiende, afgeronde vorm.
-// Bolle hoeken worden rond met rOut, holle hoeken met rIn; inset trekt de rand naar binnen.
-function outlinePath(ctx, cells, cs, ox, oy, inset, rOut, rIn) {
+// Hoekpunten van de buitenrand(en) van een groep vakjes, met de klok mee (y naar beneden).
+// inset trekt de rand naar binnen. Elke lus is een lijst {x, y, convex}.
+function outlineLoops(cells, cs, ox, oy, inset) {
   const has = (x, y) => cells.some(c => c.x === x && c.y === y);
   const edges = [];
   for (const c of cells) {
@@ -47,6 +49,7 @@ function outlinePath(ctx, cells, cs, ox, oy, inset, rOut, rIn) {
   const byStart = new Map();
   for (const e of edges) { const k = e.a.join(','); if (!byStart.has(k)) byStart.set(k, []); byStart.get(k).push(e); }
   const used = new Set();
+  const loops = [];
   for (const e0 of edges) {
     if (used.has(e0)) continue;
     const loop = []; let e = e0;
@@ -63,8 +66,16 @@ function outlinePath(ctx, cells, cs, ox, oy, inset, rOut, rIn) {
       const n1 = [-d1[1], d1[0]], n2 = [-d2[1], d2[0]];
       verts.push({ x: ox + cur.b[0] * cs + inset * (n1[0] + n2[0]), y: oy + cur.b[1] * cs + inset * (n1[1] + n2[1]), convex: cross > 0 });
     }
+    if (verts.length >= 3) loops.push(verts);
+  }
+  return loops;
+}
+
+// Tekent de buitenrand van een groep vakjes als één vloeiende, afgeronde vorm.
+// Bolle hoeken worden rond met rOut, holle hoeken met rIn; inset trekt de rand naar binnen.
+function outlinePath(ctx, cells, cs, ox, oy, inset, rOut, rIn) {
+  for (const verts of outlineLoops(cells, cs, ox, oy, inset)) {
     const N = verts.length;
-    if (N < 3) continue;
     const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
     ctx.moveTo((verts[N - 1].x + verts[0].x) / 2, (verts[N - 1].y + verts[0].y) / 2);
     for (let i = 0; i < N; i++) {
@@ -74,6 +85,131 @@ function outlinePath(ctx, cells, cs, ox, oy, inset, rOut, rIn) {
     }
     ctx.closePath();
   }
+}
+
+// Punten met buitennormaal langs diezelfde afgeronde buitenrand, ongeveer 'step' uit elkaar.
+// Hierlangs komen de plukjes vacht.
+function outlineSamples(cells, cs, ox, oy, inset, rOut, rIn, step) {
+  const out = [];
+  const dist = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  for (const verts of outlineLoops(cells, cs, ox, oy, inset)) {
+    const N = verts.length;
+    const corners = verts.map((v, i) => {
+      const pv = verts[(i + N - 1) % N], nv = verts[(i + 1) % N];
+      const d1 = dist(pv, v) || 1, d2 = dist(v, nv) || 1;
+      const r = Math.min(v.convex ? rOut : rIn, d1 / 2, d2 / 2);
+      const u1 = { x: (pv.x - v.x) / d1, y: (pv.y - v.y) / d1 }, u2 = { x: (nv.x - v.x) / d2, y: (nv.y - v.y) / d2 };
+      return {
+        r, convex: v.convex,
+        a: { x: v.x + u1.x * r, y: v.y + u1.y * r }, b: { x: v.x + u2.x * r, y: v.y + u2.y * r },
+        c: { x: v.x + (u1.x + u2.x) * r, y: v.y + (u1.y + u2.y) * r },
+      };
+    });
+    for (let i = 0; i < N; i++) {
+      const prev = corners[(i + N - 1) % N], cur = corners[i];
+      // recht stuk
+      const dx = cur.a.x - prev.b.x, dy = cur.a.y - prev.b.y, len = Math.hypot(dx, dy);
+      if (len > 1e-6) {
+        const nx = dy / len, ny = -dx / len;
+        const n = Math.max(1, Math.round(len / step));
+        for (let k = 0; k < n; k++) { const t = (k + 0.5) / n; out.push({ x: prev.b.x + dx * t, y: prev.b.y + dy * t, nx, ny }); }
+      }
+      // boogje om de hoek
+      if (cur.r > 1e-6) {
+        const a0 = Math.atan2(cur.a.y - cur.c.y, cur.a.x - cur.c.x);
+        let da = Math.atan2(cur.b.y - cur.c.y, cur.b.x - cur.c.x) - a0;
+        while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
+        const n = Math.max(1, Math.round(Math.abs(da) * cur.r / step));
+        const s = cur.convex ? 1 : -1;
+        for (let k = 0; k < n; k++) {
+          const ang = a0 + da * (k + 0.5) / n;
+          out.push({ x: cur.c.x + Math.cos(ang) * cur.r, y: cur.c.y + Math.sin(ang) * cur.r, nx: Math.cos(ang) * s, ny: Math.sin(ang) * s });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// Punten met buitennormaal rondom een ellips.
+function ellipseSamples(cx, cy, rx, ry, step) {
+  const out = [];
+  const n = Math.max(8, Math.round(Math.PI * (rx + ry) / step));
+  for (let k = 0; k < n; k++) {
+    const a = k / n * Math.PI * 2, x = Math.cos(a), y = Math.sin(a);
+    let nx = x / rx, ny = y / ry; const l = Math.hypot(nx, ny) || 1;
+    out.push({ x: cx + x * rx, y: cy + y * ry, nx: nx / l, ny: ny / l });
+  }
+  return out;
+}
+
+// Eén plukje vacht: een smal, licht gebogen driehoekje vanaf (x,y) in richting (nx,ny).
+// Voegt alleen toe aan het huidige pad (zodat veel plukjes in één fill kunnen).
+function tuft(ctx, x, y, nx, ny, len, w, bend) {
+  const px = -ny, py = nx;
+  const tx = x + nx * len + px * bend, ty = y + ny * len + py * bend;
+  const mx = x + nx * len * 0.5 + px * bend * 0.3, my = y + ny * len * 0.5 + py * bend * 0.3;
+  ctx.moveTo(x + px * w / 2, y + py * w / 2);
+  ctx.quadraticCurveTo(mx + px * w * 0.22, my + py * w * 0.22, tx, ty);
+  ctx.quadraticCurveTo(mx - px * w * 0.22, my - py * w * 0.22, x - px * w / 2, y - py * w / 2);
+  ctx.closePath();
+}
+
+// Pluizige rand rond een vorm: drie lagen plukjes (schaduwtint, basiskleur, lichte topjes).
+// samples: punten met buitennormaal; opt.len(s) geeft per punt een lengtefactor (voor wangetjes),
+// opt.scale schaalt alles (pootjes).
+function furEdge(ctx, samples, cols, seed, cs, opt = {}) {
+  const sc = opt.scale || 1, lenFn = opt.len || null;
+  const layer = (color, lenMul, wMul, every, salt, filter) => {
+    ctx.fillStyle = color; ctx.beginPath();
+    for (let i = 0; i < samples.length; i += every) {
+      const s = samples[i];
+      if (filter && !filter(s)) continue;
+      const m = lenFn ? lenFn(s, i) : 1;
+      const r1 = seeded(seed + salt + i * 4.7), r2 = seeded(seed + salt + i * 9.3 + 1), r3 = seeded(seed + salt + i * 2.9 + 2);
+      const len = cs * (0.04 + 0.06 * r1) * lenMul * m * sc;
+      const w = cs * (0.05 + 0.04 * r2) * wMul * Math.sqrt(m) * sc;
+      // plukjes hangen een tikje naar beneden
+      let nx = s.nx, ny = s.ny + 0.3; const l = Math.hypot(nx, ny); nx /= l; ny /= l;
+      const root = cs * 0.04 * sc;
+      tuft(ctx, s.x - s.nx * root, s.y - s.ny * root, nx, ny, len + root, w, (r3 - 0.5) * len * 0.9);
+    }
+    ctx.fill();
+  };
+  layer(rgba(cols.dark, 0.26), 1.0, 1.4, 1, 0, null);
+  layer(rgba(cols.base, 0.85), 0.9, 1.1, 1, 500, null);
+  layer(rgba(cols.base, 0.6), 0.7, 0.9, 1, 700, null);
+  layer(rgba(cols.light, 0.5), 0.6, 0.75, 2, 900, s => s.ny < 0.25);
+}
+
+// Korte zachte haartjes binnenin een vorm: lichte op de bovenkant, donkere op de onderkant.
+// items: {x, y, dx, dy, light}
+function hairs(ctx, items, cs, lightCol, darkCol, lightA, darkA) {
+  ctx.lineCap = 'round'; ctx.lineWidth = cs * 0.03;
+  for (const [color, light] of [[rgba(lightCol, lightA), true], [rgba(darkCol, darkA), false]]) {
+    ctx.strokeStyle = color; ctx.beginPath();
+    for (const h of items) {
+      if (h.light !== light) continue;
+      ctx.moveTo(h.x, h.y);
+      ctx.quadraticCurveTo(h.x + h.dx * 0.5 + h.dy * 0.15, h.y + h.dy * 0.5 - h.dx * 0.15, h.x + h.dx, h.y + h.dy);
+    }
+    ctx.stroke();
+  }
+}
+
+// Heel fijne korrel over de vacht (soft-light), één keer aangemaakt.
+let FUR_GRAIN = null;
+function furGrain(ctx) {
+  if (!FUR_GRAIN) {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'); const img = g.createImageData(64, 64);
+    for (let i = 0; i < 64 * 64; i++) {
+      const v = 96 + Math.floor(seeded(i + 0.5) * 64);
+      img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0); FUR_GRAIN = c;
+  }
+  return ctx.createPattern(FUR_GRAIN, 'repeat');
 }
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -98,20 +234,28 @@ class Cat {
     this.sleepAfter = Levels.rnd(18, 45);
     this.pitch = Levels.rnd(0.85, 1.25);
     this.seed = Math.floor(Math.random() * 1000);
-    // iedere poes haar eigen staart: hoe sterk en welke kant op hij krult, hoe laat de krul begint, een lichte S, lengte en dikte
+    // iedere poes haar eigen staart: een vraagteken-haakje of een krul om zich heen (nooit bijna recht),
+    // welke kant op, hoe laat de krul begint, een lichte S, lengte en dikte; plus vaste plukjes pluis
     const side = Math.random() < 0.5 ? -1 : 1;
     this.tail = {
-      curl: Levels.rnd(1.2, 2.7) * side, k: Levels.rnd(1.0, 2.3), wave: Levels.rnd(0, 0.6) * -side,
-      len: Levels.rnd(1.0, 1.35), thick: Levels.rnd(0.9, 1.15),
+      curl: Levels.rnd(2.0, 3.1) * side, k: Levels.rnd(1.3, 2.4), wave: Levels.rnd(0, 0.4) * -side,
+      len: Levels.rnd(0.85, 1.1), thick: Levels.rnd(0.9, 1.15),
+      fuzz: Array.from({ length: 18 }, (_, i) => ({
+        u: 0.12 + 0.86 * seeded(this.seed + i * 3.3), side: i % 2 ? 1 : -1,
+        len: 0.5 + seeded(this.seed + i * 7.1) * 0.8, w: 0.6 + seeded(this.seed + i * 11.7) * 0.5,
+        bend: seeded(this.seed + i * 5.9) - 0.5,
+      })),
     };
     this.anim = {
       sx: 1, sy: 1, squash: 0, squashV: 0, lift: 0, headDx: 0, headDy: 0,
       earTwitch: 0, blink: 0, nextBlink: Levels.rnd(1, 5), tailPhase: Levels.rnd(0, 6.28),
-      walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16),
+      walkPhase: 0, rot: 0, wag: 0, stretch: 0, tailAct: 0, tailFlick: 0, nextFlick: Levels.rnd(4, 16), breath: 0,
     };
     this.walkTarget = null;
     this.bubble = null;
     this.zzzTimer = 0;
+    this.fur = null;            // cache van de vacht (lijfje + kop), zie ensureFur()
+    this.drawScale = 1;
     this.computeFeatures();
   }
 
@@ -173,6 +317,7 @@ class Cat {
     this.pos.x += c0.x - c1.x; this.pos.y += c0.y - c1.y;
     this.anim.squash = 0.06; this.anim.squashV = 0.4;
     this.anim.earTwitch = 1;
+    this.fur = null;            // vorm veranderd: vacht opnieuw tekenen
   }
 
   get width() { return this.cols * this.cs; }
@@ -243,7 +388,7 @@ class Cat {
     if (a.nextFlick <= 0) { a.nextFlick = Levels.rnd(8, 24); if (!active && this.state !== 'sleeping') a.tailFlick = 1; }
 
     // veertje voor het pletten/stuiteren
-    a.squashV += (-a.squash * 160 - a.squashV * 8) * dt;
+    a.squashV += (-a.squash * 160 - a.squashV * 18) * dt;
     a.squash += a.squashV * dt;
 
     a.lift = lerp(a.lift, this.held ? 1 : 0, Math.min(1, dt * 9));
@@ -257,7 +402,9 @@ class Cat {
 
     if (this.bubble) { this.bubble.t -= dt; if (this.bubble.t <= 0) this.bubble = null; }
 
-    // toestanden
+    // toestanden; ademen/waggelen wordt hier gezet (niet opgeteld) en pas in draw() toegepast,
+    // anders stapelt het via de lerp van a.sy op tot een flink groeien en krimpen
+    a.breath = 0;
     if (this.state === 'stretching') {
       a.stretch = Math.sin(Math.min(1, this.stateTime / 0.9) * Math.PI);
       if (this.stateTime > 0.9) { a.stretch = 0; this.state = 'walking'; this.stateTime = 0; }
@@ -273,14 +420,14 @@ class Cat {
         this.pos.x += dx / d * sp; this.pos.y += dy / d * sp;
         a.walkPhase += dt * 11;
         a.rot = Math.sin(a.walkPhase) * 0.05;
-        a.sy *= 1 + Math.sin(a.walkPhase * 2) * 0.015;
+        a.breath = Math.sin(a.walkPhase * 2) * 0.01;
       }
     } else if (this.state === 'idle') {
       a.rot = lerp(a.rot, 0, Math.min(1, dt * 6));
       this.idleTime += dt;
       if (this.idleTime > this.sleepAfter) { this.state = 'sleeping'; this.stateTime = 0; this.zzzTimer = 0.5; }
     } else if (this.state === 'sleeping') {
-      a.sy *= 1 + Math.sin(this.stateTime * 1.6) * 0.012;
+      a.breath = Math.sin(this.stateTime * 1.6) * 0.008;
       this.zzzTimer -= dt;
       if (this.zzzTimer <= 0 && game) {
         this.zzzTimer = Levels.rnd(1.2, 2.2);
@@ -327,6 +474,9 @@ class Cat {
   draw(ctx, t) {
     const a = this.anim, cs = this.cs, col = this.color;
     const c = this.center();
+    // schaal van het scherm (voor de resolutie van de vachtcache), gemeten vóór het pletten/draaien
+    if (ctx.getTransform) { const m = ctx.getTransform(); this.drawScale = Math.hypot(m.a, m.b) || 1; }
+    this.ensureFur(this.drawScale);
     this.drawShadow(ctx);
 
     ctx.save();
@@ -335,7 +485,7 @@ class Cat {
     const s = 1 + a.lift * 0.04;
     ctx.translate(c.x, c.y - a.lift * 14);
     ctx.rotate(a.rot);
-    ctx.scale(a.sx * s * (1 - sq * 0.6) * (1 + stretch * 0.06), a.sy * s * (1 + sq) * (1 - stretch * 0.03));
+    ctx.scale(a.sx * s * (1 - sq * 0.6) * (1 + stretch * 0.06) * (1 - a.breath * 0.5), a.sy * s * (1 + sq) * (1 - stretch * 0.03) * (1 + a.breath));
     ctx.translate(-c.x, -c.y);
 
     this.drawTail(ctx, t);
@@ -344,24 +494,226 @@ class Cat {
     ctx.restore();
   }
 
+  // --- vachtcache ----------------------------------------------------------
+  // De pluizige vacht (honderden plukjes en haartjes) is te duur om elk beeldje te tekenen.
+  // Daarom tekenen we lijfje en kop één keer op eigen canvasjes, op schermresolutie, en
+  // plakken die elk beeldje. Opnieuw tekenen bij een andere vorm/kijkrichting (draaien) of
+  // als de schermschaal flink verandert. Oogjes, oortjes, staart, pootjes-wiebel en de
+  // plet-/til-animatie blijven gewoon live.
+  furKey() {
+    return this.cells.map(c => c.x + ',' + c.y).join(';') + '|' + this.headIdx + '|' + this.facing.x + ',' + this.facing.y;
+  }
+  ensureFur(S) {
+    S = clamp(S || 1, 0.5, 4);
+    const key = this.furKey();
+    const f = this.fur;
+    if (f && f.key === key && Math.abs(f.S / S - 1) < 0.12) return f;
+    const cs = this.cs, M = cs * 0.26;
+    // lijfje, in lokale coördinaten t.o.v. pos
+    const bw = this.width + 2 * M, bh = this.height + 2 * M;
+    const body = document.createElement('canvas');
+    body.width = Math.ceil(bw * S); body.height = Math.ceil(bh * S);
+    const bc = body.getContext('2d');
+    bc.scale(S, S); bc.translate(M - this.pos.x, M - this.pos.y);
+    this.paintBody(bc);
+    // kop (met pootjes), met het middelpunt van de kop als oorsprong
+    const r = cs * 0.44, hr = r * 1.75;
+    const head = document.createElement('canvas');
+    head.width = head.height = Math.ceil(hr * 2 * S);
+    const hc = head.getContext('2d');
+    hc.scale(S, S); hc.translate(hr, hr);
+    this.paintHead(hc);
+    this.fur = { key, S, body, M, bw, bh, head, hr };
+    return this.fur;
+  }
+
+  // Het lijfje met vacht, in absolute coördinaten (de cache-context is verschoven).
+  paintBody(c) {
+    const cs = this.cs, col = this.color, inset = cs * 0.06, seed = this.seed;
+    const edgeDark = mix(col.base, col.dark, 0.35);
+    // zachte waas om de rand heen
+    c.fillStyle = rgba(col.base, 0.28); this.tracePath(c, inset - cs * 0.05); c.fill();
+    c.fillStyle = rgba(col.base, 0.5); this.tracePath(c, inset - cs * 0.025); c.fill();
+    // plukjes langs de rand
+    const samples = outlineSamples(this.cells, cs, this.pos.x, this.pos.y, inset, (cs - 2 * inset) * 0.46, cs * 0.24, cs * 0.03);
+    furEdge(c, samples, { dark: edgeDark, base: col.base, light: col.light }, seed, cs);
+    // het lijfje zelf
+    c.save();
+    this.tracePath(c, inset);
+    c.fillStyle = col.base; c.fill();
+    c.clip();
+    // volume per vakje
+    for (const cell of this.cells) {
+      const cc = this.cellCenter(cell);
+      const g = c.createRadialGradient(cc.x - cs * 0.14, cc.y - cs * 0.2, cs * 0.05, cc.x, cc.y, cs * 0.72);
+      g.addColorStop(0, rgba(col.light, 0.5));
+      g.addColorStop(0.65, rgba(col.light, 0.08));
+      g.addColorStop(1, rgba(col.light, 0));
+      c.fillStyle = g;
+      c.fillRect(cc.x - cs, cc.y - cs, cs * 2, cs * 2);
+    }
+    // donkerder naar onderen
+    const bb = this.bbox();
+    const lg = c.createLinearGradient(0, bb.y, 0, bb.y + bb.h);
+    lg.addColorStop(0, rgba(col.dark, 0));
+    lg.addColorStop(1, rgba(col.dark, 0.26));
+    c.fillStyle = lg; c.fillRect(bb.x - 10, bb.y - 10, bb.w + 20, bb.h + 20);
+    this.drawPattern(c);
+    // zachte haartjes: boven licht, onder donker, ze liggen van het midden af en een beetje omlaag
+    const items = [];
+    this.cells.forEach((cell, i) => {
+      const cc = this.cellCenter(cell);
+      for (let k = 0; k < 64; k++) {
+        const r1 = seeded(seed + i * 101 + k * 3.1), r2 = seeded(seed + i * 57 + k * 7.7 + 1), r3 = seeded(seed + i * 23 + k * 1.3 + 2), r4 = seeded(seed + i * 11 + k * 5.5 + 3);
+        const x = cc.x + (r1 - 0.5) * cs * 0.94, y = cc.y + (r2 - 0.5) * cs * 0.94;
+        const ang = Math.atan2((y - cc.y) / cs * 1.2 + 0.6, (x - cc.x) / cs * 1.2) + (r3 - 0.5) * 0.8;
+        const len = cs * (0.05 + 0.05 * r4);
+        items.push({ x, y, dx: Math.cos(ang) * len, dy: Math.sin(ang) * len, light: y < cc.y - cs * 0.02 });
+      }
+    });
+    hairs(c, items, cs, col.light, col.dark, 0.2, 0.1);
+    // fijne korrel
+    c.save(); c.globalCompositeOperation = 'soft-light'; c.globalAlpha = 0.35;
+    c.fillStyle = furGrain(c); c.fillRect(bb.x - cs, bb.y - cs, bb.w + 2 * cs, bb.h + 2 * cs);
+    c.restore();
+    // lichtrandje linksboven: de rand iets verschoven getekend, binnen de clip blijft alleen de bovenkant over
+    for (const [w, al] of [[0.28, 0.07], [0.18, 0.09], [0.1, 0.11]]) {
+      this.tracePath(c, inset, cs * (w * 0.5 + 0.01), cs * (w * 0.5 + 0.02));
+      c.lineWidth = cs * w; c.strokeStyle = rgba(col.light, al); c.stroke();
+    }
+    // zachte binnenrand als verloop, zonder harde omlijning
+    for (const [w, al] of [[0.34, 0.045], [0.24, 0.055], [0.15, 0.07], [0.07, 0.09]]) {
+      this.tracePath(c, inset);
+      c.lineWidth = cs * w; c.strokeStyle = rgba(col.dark, al); c.stroke();
+    }
+    c.restore();
+  }
+
+  // De kop (met pootjes, blosjes en wangpluis), met (0,0) als middelpunt van de kop.
+  paintHead(c) {
+    const cs = this.cs, col = this.color, f = this.facing, r = cs * 0.44, seed = this.seed + 77;
+    const headCol = col.pattern === 'siamese' ? mix(col.base, col.dark, 0.55) : col.base;
+    const light = col.pattern === 'siamese' ? mix(col.light, col.dark, 0.3) : col.light;
+    const edgeDark = mix(headCol, col.dark, 0.35);
+
+    // pootjes (alleen als de kop niet omhoog kijkt)
+    if (f.y >= 0) {
+      const py = r * 0.95 + f.y * r * 0.15;
+      const pawCol = col.pattern === 'tuxedo' ? '#fff8f0' : headCol;
+      const pawLight = mix(pawCol, '#ffffff', 0.5), pawDark = mix(pawCol, col.dark, 0.5);
+      [-1, 1].forEach((sgn, j) => {
+        const px = sgn * r * 0.42, rx = r * 0.23, ry = r * 0.17;
+        furEdge(c, ellipseSamples(px, py, rx, ry, cs * 0.035), { dark: pawDark, base: pawCol, light: pawLight }, seed + j * 31, cs, { scale: 0.5 });
+        c.fillStyle = pawCol; c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
+        c.save(); c.clip();
+        const pg = c.createLinearGradient(0, py - ry, 0, py + ry);
+        pg.addColorStop(0, rgba(col.dark, 0.3)); pg.addColorStop(0.6, rgba(col.dark, 0)); pg.addColorStop(1, rgba(col.dark, 0.18));
+        c.fillStyle = pg; c.fillRect(px - rx, py - ry, rx * 2, ry * 2);
+        c.restore();
+        // teentjes
+        c.strokeStyle = rgba(col.dark, 0.3); c.lineWidth = r * 0.045; c.lineCap = 'round';
+        c.beginPath();
+        c.moveTo(px, py + r * 0.02); c.lineTo(px, py + r * 0.14);
+        c.moveTo(px + r * 0.08, py + r * 0.02); c.lineTo(px + r * 0.1, py + r * 0.13);
+        c.moveTo(px - r * 0.08, py + r * 0.02); c.lineTo(px - r * 0.1, py + r * 0.13);
+        c.stroke();
+      });
+    }
+
+    // waas en plukjes om de kop; op de wangen langer en voller
+    c.fillStyle = rgba(headCol, 0.3); c.beginPath(); c.ellipse(0, 0, r * 1.06 + cs * 0.05, r + cs * 0.05, 0, 0, Math.PI * 2); c.fill();
+    c.fillStyle = rgba(headCol, 0.55); c.beginPath(); c.ellipse(0, 0, r * 1.06 + cs * 0.025, r + cs * 0.025, 0, 0, Math.PI * 2); c.fill();
+    const hs = ellipseSamples(0, 0, r * 1.06, r, cs * 0.028);
+    furEdge(c, hs, { dark: edgeDark, base: headCol, light }, seed, cs, {
+      len: s => {
+        const cheek = Math.pow(Math.abs(s.nx), 4) * (s.ny > -0.15 && s.ny < 0.8 ? 1 : 0.3);
+        return 0.8 + 1.7 * cheek;
+      },
+    });
+    // de kop zelf
+    c.save();
+    c.beginPath(); c.ellipse(0, 0, r * 1.06, r, 0, 0, Math.PI * 2);
+    c.fillStyle = headCol; c.fill(); c.clip();
+    const g = c.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.1, 0, 0, r * 1.3);
+    g.addColorStop(0, rgba(light, col.pattern === 'siamese' ? 0.45 : 0.7));
+    g.addColorStop(0.55, 'rgba(255,255,255,0)');
+    g.addColorStop(1, rgba(col.dark, 0.3));
+    c.fillStyle = g; c.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+    if (col.pattern === 'tabby') {
+      // zachte voorhoofdstreepjes
+      c.lineCap = 'round';
+      [-0.22, 0, 0.22].forEach(off => {
+        for (const [w, al] of [[0.16, 0.16], [0.09, 0.3]]) {
+          c.strokeStyle = rgba(col.dark, al); c.lineWidth = r * w;
+          c.beginPath(); c.moveTo(off * r, -r * 0.95); c.lineTo(off * r * 1.2, -r * 0.55); c.stroke();
+        }
+      });
+    }
+    if (col.pattern === 'tuxedo') {
+      const g2 = c.createRadialGradient(0, r * 0.45, r * 0.1, 0, r * 0.45, r * 0.6);
+      g2.addColorStop(0, 'rgba(255,248,240,0.95)'); g2.addColorStop(0.7, 'rgba(255,248,240,0.9)'); g2.addColorStop(1, 'rgba(255,248,240,0)');
+      c.fillStyle = g2; c.fillRect(-r, -r, r * 2, r * 2);
+    }
+    if (col.pattern === 'siamese') {
+      const g2 = c.createRadialGradient(0, r * 0.2, r * 0.1, 0, r * 0.2, r * 0.75);
+      g2.addColorStop(0, rgba(col.dark, 0.35)); g2.addColorStop(1, rgba(col.dark, 0));
+      c.fillStyle = g2; c.fillRect(-r, -r, r * 2, r * 2);
+    }
+    // haartjes, van het midden af; niet op het snoetje
+    const items = [];
+    for (let k = 0; k < 130; k++) {
+      const r1 = seeded(seed + k * 3.7), r2 = seeded(seed + k * 8.3 + 1), r3 = seeded(seed + k * 1.9 + 2), r4 = seeded(seed + k * 6.1 + 3);
+      const x = (r1 - 0.5) * 2 * r * 1.06, y = (r2 - 0.5) * 2 * r;
+      if ((x / (r * 1.06)) ** 2 + (y / r) ** 2 > 1) continue;
+      if (Math.abs(x) < r * 0.4 && y > r * 0.15) continue;
+      const ang = Math.atan2((y + r * 0.3) / r + 0.5, x / r) + (r3 - 0.5) * 0.8;
+      const len = r * (0.1 + 0.1 * r4);
+      items.push({ x, y, dx: Math.cos(ang) * len, dy: Math.sin(ang) * len, light: y < -r * 0.1 });
+    }
+    hairs(c, items, cs, light, col.dark, 0.2, 0.09);
+    c.save(); c.globalCompositeOperation = 'soft-light'; c.globalAlpha = 0.35;
+    c.fillStyle = furGrain(c); c.fillRect(-r * 1.2, -r * 1.2, r * 2.4, r * 2.4);
+    c.restore();
+    // lichtrandje linksboven en een zachte binnenrand
+    for (const [w, al] of [[0.3, 0.07], [0.2, 0.09], [0.1, 0.11]]) {
+      c.beginPath(); c.ellipse(r * (w * 0.5 + 0.01), r * (w * 0.5 + 0.03), r * 1.06, r, 0, 0, Math.PI * 2);
+      c.lineWidth = r * w; c.strokeStyle = rgba(light, al); c.stroke();
+    }
+    for (const [w, al] of [[0.4, 0.04], [0.26, 0.05], [0.14, 0.07]]) {
+      c.beginPath(); c.ellipse(0, 0, r * 1.06, r, 0, 0, Math.PI * 2);
+      c.lineWidth = r * w; c.strokeStyle = rgba(col.dark, al); c.stroke();
+    }
+    c.restore();
+
+    // blosjes
+    [-1, 1].forEach(sgn => {
+      const bx = sgn * r * 0.66, by = r * 0.4;
+      const bg = c.createRadialGradient(bx, by, 0, bx, by, r * 0.26);
+      bg.addColorStop(0, 'rgba(243,120,145,0.32)'); bg.addColorStop(1, 'rgba(243,120,145,0)');
+      c.fillStyle = bg; c.beginPath(); c.ellipse(bx, by, r * 0.26, r * 0.18, 0, 0, Math.PI * 2); c.fill();
+    });
+  }
+
   drawTail(ctx, t) {
     const cs = this.cs, a = this.anim, col = this.color;
     const tc = this.cellCenter(this.cells[this.tailIdx]);
     const d = this.tailDir, p = { x: -d.y, y: d.x };
     const sleeping = this.state === 'sleeping';
     const T = this.tail;
-    const rest = sleeping ? T.curl * 1.2 : T.curl;
+    const rest = clamp(sleeping ? T.curl * 1.15 : T.curl, -3.4, 3.4);
     const flick = a.tailFlick > 0 ? Math.sin((1 - a.tailFlick) * Math.PI) * 0.5 * Math.sign(T.curl) : 0;
     // vaste lengte: de staart buigt (krul, zwaaien, achter de beweging aan slepen), maar rekt nooit
     const sideVel = this.vel.x * p.x + this.vel.y * p.y;
     const lag = clamp(-sideVel * 0.0022, -0.9, 0.9);
     const bend = rest * (1 - a.tailAct * 0.45) + Math.sin(a.tailPhase) * (0.8 + a.wag * 0.3) * a.tailAct + flick + lag;
-    const L = cs * 1.1 * T.len, N = 18, pts = [];
+    const L = cs * 0.95 * T.len, N = 18, pts = [];
     let x = tc.x + d.x * cs * 0.28, y = tc.y + d.y * cs * 0.28;
     const th0 = Math.atan2(d.y, d.x);
     for (let i = 0; i <= N; i++) {
       const u = i / N;
-      pts.push({ x, y, w: cs * (0.1 - 0.042 * u) * T.thick });
+      // mollig naar de punt toe: iets smaller in het midden, dan een zacht pluizig bolletje
+      let plump = clamp((u - 0.5) / 0.42, 0, 1); plump = plump * plump * (3 - 2 * plump);
+      pts.push({ x, y, w: cs * (0.085 - 0.025 * u + 0.05 * plump) * T.thick });
       const uu = (i + 0.5) / N;
       const th = th0 + bend * Math.pow(uu, T.k) + T.wave * Math.sin(uu * Math.PI * 1.6) * (1 - a.tailAct * 0.5);
       x += Math.cos(th) * L / N; y += Math.sin(th) * L / N;
@@ -374,17 +726,42 @@ class Cat {
       right.push({ x: pts[i].x - nx * pts[i].w, y: pts[i].y - ny * pts[i].w });
     }
     const tip = pts[N], tipW = tip.w;
+    const capA0 = Math.atan2(left[N].y - tip.y, left[N].x - tip.x), capA1 = Math.atan2(right[N].y - tip.y, right[N].x - tip.x);
     const tracePoly = () => {
       ctx.beginPath();
       ctx.moveTo(left[0].x, left[0].y);
       for (let i = 1; i <= N; i++) ctx.lineTo(left[i].x, left[i].y);
-      ctx.arc(tip.x, tip.y, tipW, Math.atan2(left[N].y - tip.y, left[N].x - tip.x), Math.atan2(right[N].y - tip.y, right[N].x - tip.x), true);
+      ctx.arc(tip.x, tip.y, tipW, capA0, capA1, true);
       for (let i = N; i >= 0; i--) ctx.lineTo(right[i].x, right[i].y);
       ctx.closePath();
     };
+    const tipCol = col.pattern === 'siamese' ? col.dark : (col.pattern === 'tuxedo' || col.pattern === 'calico' ? '#fff8f0' : col.light);
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    // zachte pluizige rand: een donkere waas, een waas in de basiskleur en losse plukjes
     tracePoly();
-    ctx.lineWidth = 3; ctx.strokeStyle = rgba(col.dark, 0.5); ctx.stroke();
+    ctx.lineWidth = cs * 0.07; ctx.strokeStyle = rgba(col.dark, 0.16); ctx.stroke();
+    ctx.lineWidth = cs * 0.045; ctx.strokeStyle = rgba(col.base, 0.5); ctx.stroke();
+    ctx.fillStyle = rgba(col.base, 0.7); ctx.beginPath();
+    for (const fz of T.fuzz) {
+      const fi = fz.u * N, i = Math.floor(fi), fr = fi - i, j = Math.min(i + 1, N);
+      const side = fz.side > 0 ? left : right;
+      const ex = lerp(side[i].x, side[j].x, fr), ey = lerp(side[i].y, side[j].y, fr);
+      const cx = lerp(pts[i].x, pts[j].x, fr), cy = lerp(pts[i].y, pts[j].y, fr);
+      let nx = ex - cx, ny = ey - cy; const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+      const w = lerp(pts[i].w, pts[j].w, fr);
+      tuft(ctx, ex - nx * w * 0.3, ey - ny * w * 0.3, nx, ny, w * (0.45 + 0.5 * fz.len), w * 0.6 * fz.w, fz.bend * w * 0.5);
+    }
+    ctx.fill();
+    // pluizig puntje
+    let da = capA1 - capA0; while (da > 0) da -= Math.PI * 2;
+    ctx.fillStyle = rgba(tipCol, 0.6); ctx.beginPath();
+    for (let k = 0; k < 9; k++) {
+      const ang = capA0 + da * (k + 0.5) / 9, cx = Math.cos(ang), cy = Math.sin(ang);
+      const r1 = seeded(this.seed + k * 4.3), r2 = seeded(this.seed + k * 2.7 + 1);
+      tuft(ctx, tip.x + cx * tipW * 0.6, tip.y + cy * tipW * 0.6, cx, cy, tipW * (0.65 + 0.3 * r1), tipW * 0.75, (r2 - 0.5) * tipW * 0.4);
+    }
+    ctx.fill();
+    tracePoly();
     ctx.fillStyle = col.base; ctx.fill();
     ctx.save(); ctx.clip();
     // schaduwkant en lichtkant
@@ -393,60 +770,34 @@ class Cat {
     ctx.lineWidth = cs * 0.045; ctx.strokeStyle = rgba(col.light, 0.55);
     ctx.beginPath(); ctx.moveTo((pts[0].x + left[0].x) / 2, (pts[0].y + left[0].y) / 2);
     for (let i = 1; i <= N; i++) ctx.lineTo((pts[i].x + left[i].x) / 2, (pts[i].y + left[i].y) / 2); ctx.stroke();
+    // ringetjes, zacht
+    const ring = (u, color, wf) => {
+      const i = Math.round(u * N); ctx.lineWidth = pts[i].w * wf; ctx.strokeStyle = color;
+      ctx.beginPath(); ctx.moveTo(left[i].x, left[i].y); ctx.lineTo(right[i].x, right[i].y); ctx.stroke();
+    };
     if (col.pattern === 'tabby') {
-      ctx.strokeStyle = rgba(col.dark, 0.45);
-      [0.35, 0.55, 0.75].forEach(u => {
-        const i = Math.round(u * N); ctx.lineWidth = pts[i].w * 0.5;
-        ctx.beginPath(); ctx.moveTo(left[i].x, left[i].y); ctx.lineTo(right[i].x, right[i].y); ctx.stroke();
-      });
+      [0.3, 0.5, 0.7].forEach(u => { ring(u, rgba(col.dark, 0.16), 0.95); ring(u, rgba(col.dark, 0.3), 0.5); });
+    } else if (col.pattern !== 'siamese') {
+      ring(0.62, rgba(col.light, 0.3), 0.7);
     }
     // puntje
-    const tipCol = col.pattern === 'siamese' ? col.dark : (col.pattern === 'tuxedo' || col.pattern === 'calico' ? '#fff8f0' : col.light);
-    const tg = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, tipW * 3);
-    tg.addColorStop(0, tipCol); tg.addColorStop(0.6, tipCol); tg.addColorStop(1, rgba(col.base, 0));
+    const tg = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, tipW * 2.6);
+    tg.addColorStop(0, tipCol); tg.addColorStop(0.55, tipCol); tg.addColorStop(1, rgba(col.base, 0));
     ctx.fillStyle = tg; ctx.fillRect(tip.x - tipW * 3, tip.y - tipW * 3, tipW * 6, tipW * 6);
     ctx.restore();
   }
 
   drawBody(ctx) {
-    const cs = this.cs, col = this.color;
-    const inset = cs * 0.06;
-    ctx.save();
-    this.tracePath(ctx, inset);
-    ctx.fillStyle = col.base; ctx.fill();
-    ctx.clip();
-    // volume per vakje
-    for (const c of this.cells) {
-      const cc = this.cellCenter(c);
-      const g = ctx.createRadialGradient(cc.x - cs * 0.14, cc.y - cs * 0.2, cs * 0.05, cc.x, cc.y, cs * 0.72);
-      g.addColorStop(0, rgba(col.light, 0.5));
-      g.addColorStop(0.65, rgba(col.light, 0.08));
-      g.addColorStop(1, rgba(col.light, 0));
-      ctx.fillStyle = g;
-      ctx.fillRect(cc.x - cs, cc.y - cs, cs * 2, cs * 2);
-    }
-    // donkerder naar onderen
-    const bb = this.bbox();
-    const lg = ctx.createLinearGradient(0, bb.y, 0, bb.y + bb.h);
-    lg.addColorStop(0, rgba(col.dark, 0));
-    lg.addColorStop(1, rgba(col.dark, 0.28));
-    ctx.fillStyle = lg; ctx.fillRect(bb.x - 10, bb.y - 10, bb.w + 20, bb.h + 20);
-    this.drawPattern(ctx);
-    // binnenrand
-    this.tracePath(ctx, inset);
-    ctx.lineWidth = cs * 0.2; ctx.strokeStyle = rgba(col.dark, 0.2); ctx.stroke();
-    ctx.restore();
-    // dunne omlijning
-    this.tracePath(ctx, inset);
-    ctx.lineWidth = 2; ctx.strokeStyle = rgba(col.dark, 0.5); ctx.stroke();
+    const f = this.ensureFur(this.drawScale);
+    ctx.drawImage(f.body, this.pos.x - f.M, this.pos.y - f.M, f.bw, f.bh);
   }
 
+  // Vachtpatroon op het lijfje (wordt in de cache getekend, binnen de clip van het lijfje), zacht van rand.
   drawPattern(ctx) {
     const cs = this.cs, col = this.color;
     const pat = col.pattern;
     ctx.lineCap = 'round';
     if (pat === 'tabby') {
-      ctx.strokeStyle = rgba(col.dark, 0.42); ctx.lineWidth = cs * 0.075;
       this.cells.forEach((c, i) => {
         if (i === this.headIdx && this.cells.length > 1) return;
         const cc = this.cellCenter(c);
@@ -454,10 +805,13 @@ class Cat {
         for (let k = 0; k < n; k++) {
           const off = (k - (n - 1) / 2) * cs * 0.26 + (seeded(this.seed + i * 7 + k) - 0.5) * cs * 0.08;
           const len = cs * (0.28 + seeded(this.seed + i * 3 + k) * 0.18);
-          ctx.beginPath();
-          ctx.moveTo(cc.x - len / 2, cc.y + off);
-          ctx.quadraticCurveTo(cc.x, cc.y + off - cs * 0.12, cc.x + len / 2, cc.y + off);
-          ctx.stroke();
+          for (const [w, al] of [[0.14, 0.16], [0.075, 0.32]]) {
+            ctx.strokeStyle = rgba(col.dark, al); ctx.lineWidth = cs * w;
+            ctx.beginPath();
+            ctx.moveTo(cc.x - len / 2, cc.y + off);
+            ctx.quadraticCurveTo(cc.x, cc.y + off - cs * 0.12, cc.x + len / 2, cc.y + off);
+            ctx.stroke();
+          }
         }
       });
     } else if (pat === 'calico') {
@@ -469,14 +823,24 @@ class Cat {
           const sx = (seeded(this.seed + i * 5 + k) - 0.5) * cs * 0.7;
           const sy = (seeded(this.seed + i * 9 + k * 3) - 0.5) * cs * 0.7;
           const rx = cs * (0.16 + seeded(this.seed + i + k * 13) * 0.14), ry = rx * (0.7 + seeded(i * k + 2) * 0.5);
-          ctx.fillStyle = rgba(cols[(i + k) % 3], 0.85);
-          ctx.beginPath(); ctx.ellipse(cc.x + sx, cc.y + sy, rx, ry, seeded(i + k) * 3, 0, Math.PI * 2); ctx.fill();
+          // zachte, licht gerafelde lap
+          ctx.save();
+          ctx.translate(cc.x + sx, cc.y + sy); ctx.rotate(seeded(i + k) * 3); ctx.scale(rx, ry);
+          const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1.15);
+          g.addColorStop(0, rgba(cols[(i + k) % 3], 0.9)); g.addColorStop(0.78, rgba(cols[(i + k) % 3], 0.85)); g.addColorStop(1, rgba(cols[(i + k) % 3], 0));
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 1.15, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
         }
       });
     } else if (pat === 'tuxedo') {
       const h = this.cellCenter(this.cells[this.headIdx]);
-      ctx.fillStyle = 'rgba(255,248,240,0.95)';
-      ctx.beginPath(); ctx.ellipse(h.x + this.facing.x * cs * 0.1, h.y + cs * 0.3, cs * 0.26, cs * 0.3, 0, 0, Math.PI * 2); ctx.fill();
+      const px = h.x + this.facing.x * cs * 0.1, py = h.y + cs * 0.3;
+      ctx.save();
+      ctx.translate(px, py); ctx.scale(cs * 0.28, cs * 0.32);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1.15);
+      g.addColorStop(0, 'rgba(255,248,240,0.95)'); g.addColorStop(0.75, 'rgba(255,248,240,0.9)'); g.addColorStop(1, 'rgba(255,248,240,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 1.15, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     } else if (pat === 'siamese') {
       // donkere 'points' richting de kop en de staart
       const h = this.cellCenter(this.cells[this.headIdx]);
@@ -497,94 +861,72 @@ class Cat {
     const headDark = col.dark;
     const light = col.pattern === 'siamese' ? mix(col.light, col.dark, 0.3) : col.light;
 
-    // pootjes (alleen als de kop niet omhoog kijkt)
-    if (f.y >= 0) {
-      const py = hy + r * 0.95 + f.y * r * 0.15;
-      ctx.fillStyle = col.pattern === 'tuxedo' ? '#fff8f0' : (col.pattern === 'siamese' ? headCol : col.base);
-      [-1, 1].forEach(sgn => {
-        ctx.beginPath(); ctx.ellipse(hx + sgn * r * 0.42, py, r * 0.22, r * 0.16, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = rgba(headDark, 0.5); ctx.lineWidth = 1.5; ctx.stroke();
-        ctx.strokeStyle = rgba(headDark, 0.35); ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(hx + sgn * r * 0.42, py + r * 0.02); ctx.lineTo(hx + sgn * r * 0.42, py + r * 0.14);
-        ctx.moveTo(hx + sgn * r * 0.5, py + r * 0.02); ctx.lineTo(hx + sgn * r * 0.52, py + r * 0.13);
-        ctx.moveTo(hx + sgn * r * 0.34, py + r * 0.02); ctx.lineTo(hx + sgn * r * 0.32, py + r * 0.13);
-        ctx.stroke();
-      });
-    }
-
-    // oortjes
+    // oortjes (live, want ze wiebelen): zacht randje met wat pluis en een pluizige binnenkant
     const drawEar = (sgn, twist) => {
       ctx.save();
       const bx = hx + sgn * r * 0.6, by = hy - r * 0.55;
       ctx.translate(bx, by); ctx.rotate(sgn * twist); ctx.translate(-bx, -by);
+      const P0 = [hx + sgn * r * 0.22, hy - r * 0.78], P1 = [hx + sgn * r * 0.75, hy - r * 1.55], P2 = [hx + sgn * r * 0.98, hy - r * 1.2];
+      // pluisjes langs de buitenkant
+      ctx.fillStyle = rgba(headCol, 0.75); ctx.beginPath();
+      for (let k = 0; k < 7; k++) {
+        const u = (k + 0.5) / 7, v = 1 - u;
+        const x = v * v * P0[0] + 2 * v * u * P1[0] + u * u * P2[0], y = v * v * P0[1] + 2 * v * u * P1[1] + u * u * P2[1];
+        let tx = v * (P1[0] - P0[0]) + u * (P2[0] - P1[0]), ty = v * (P1[1] - P0[1]) + u * (P2[1] - P1[1]);
+        const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+        const nx = sgn * ty, ny = -sgn * tx;
+        tuft(ctx, x - nx * r * 0.04, y - ny * r * 0.04, nx, ny, r * (0.09 + 0.07 * seeded(this.seed + k * 3.3 + sgn)), r * 0.13, (seeded(this.seed + k * 1.7) - 0.5) * r * 0.06);
+      }
+      ctx.fill();
       ctx.beginPath();
-      ctx.moveTo(hx + sgn * r * 0.22, hy - r * 0.78);
-      ctx.quadraticCurveTo(hx + sgn * r * 0.75, hy - r * 1.55, hx + sgn * r * 0.98, hy - r * 1.2);
+      ctx.moveTo(P0[0], P0[1]);
+      ctx.quadraticCurveTo(P1[0], P1[1], P2[0], P2[1]);
       ctx.quadraticCurveTo(hx + sgn * r * 1.05, hy - r * 0.9, hx + sgn * r * 0.9, hy - r * 0.35);
       ctx.closePath();
       ctx.fillStyle = headCol; ctx.fill();
-      ctx.lineWidth = 2; ctx.strokeStyle = rgba(headDark, 0.5); ctx.stroke();
+      ctx.lineWidth = 2.5; ctx.strokeStyle = rgba(headDark, 0.22); ctx.stroke();
       ctx.beginPath();
       ctx.moveTo(hx + sgn * r * 0.42, hy - r * 0.78);
       ctx.quadraticCurveTo(hx + sgn * r * 0.75, hy - r * 1.3, hx + sgn * r * 0.86, hy - r * 1.08);
       ctx.quadraticCurveTo(hx + sgn * r * 0.9, hy - r * 0.85, hx + sgn * r * 0.78, hy - r * 0.55);
       ctx.closePath();
-      ctx.fillStyle = 'rgba(243,160,175,0.85)'; ctx.fill();
+      ctx.fillStyle = 'rgba(243,160,175,0.8)'; ctx.fill();
+      // zachte haartjes in het oor
+      ctx.strokeStyle = rgba(light, 0.7); ctx.lineWidth = r * 0.035; ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let k = 0; k < 3; k++) {
+        const u = 0.25 + k * 0.25;
+        const x0 = hx + sgn * r * (0.45 + 0.3 * u), y0 = hy - r * (0.66 + 0.1 * u);
+        ctx.moveTo(x0, y0); ctx.lineTo(x0 + sgn * r * 0.1, y0 - r * (0.22 + 0.08 * (1 - u)));
+      }
+      ctx.stroke();
       ctx.restore();
     };
-    drawEar(-1, a.earTwitch > 0.5 ? 0 : 0);
+    drawEar(-1, 0);
     drawEar(1, Math.sin(a.earTwitch * Math.PI) * 0.35);
 
-    // kop
-    ctx.beginPath(); ctx.ellipse(hx, hy, r * 1.06, r, 0, 0, Math.PI * 2);
-    ctx.fillStyle = headCol; ctx.fill();
-    ctx.save(); ctx.clip();
-    const g = ctx.createRadialGradient(hx - r * 0.35, hy - r * 0.45, r * 0.1, hx, hy, r * 1.3);
-    g.addColorStop(0, rgba(light.startsWith('#') ? light : col.light, light.startsWith('#') ? 0.7 : 0.45));
-    g.addColorStop(0.55, 'rgba(255,255,255,0)');
-    g.addColorStop(1, rgba(headDark, 0.3));
-    ctx.fillStyle = g; ctx.fillRect(hx - r * 1.5, hy - r * 1.5, r * 3, r * 3);
-    if (col.pattern === 'tabby') {
-      ctx.strokeStyle = rgba(headDark, 0.45); ctx.lineWidth = r * 0.09; ctx.lineCap = 'round';
-      [-0.22, 0, 0.22].forEach(off => {
-        ctx.beginPath(); ctx.moveTo(hx + off * r, hy - r * 0.95); ctx.lineTo(hx + off * r * 1.2, hy - r * 0.55); ctx.stroke();
-      });
-    }
-    if (col.pattern === 'tuxedo') {
-      ctx.fillStyle = 'rgba(255,248,240,0.95)';
-      ctx.beginPath(); ctx.ellipse(hx, hy + r * 0.45, r * 0.5, r * 0.5, 0, 0, Math.PI * 2); ctx.fill();
-    }
-    if (col.pattern === 'siamese') {
-      const g2 = ctx.createRadialGradient(hx, hy + r * 0.2, r * 0.1, hx, hy + r * 0.2, r * 0.75);
-      g2.addColorStop(0, rgba(col.dark, 0.35)); g2.addColorStop(1, rgba(col.dark, 0));
-      ctx.fillStyle = g2; ctx.fillRect(hx - r, hy - r, r * 2, r * 2);
-    }
-    ctx.restore();
-    ctx.lineWidth = 2; ctx.strokeStyle = rgba(headDark, 0.5);
-    ctx.beginPath(); ctx.ellipse(hx, hy, r * 1.06, r, 0, 0, Math.PI * 2); ctx.stroke();
+    // kop met vacht uit de cache
+    const fur = this.ensureFur(this.drawScale);
+    ctx.drawImage(fur.head, hx - fur.hr, hy - fur.hr, fur.hr * 2, fur.hr * 2);
 
-    // wangetjes
-    ctx.fillStyle = 'rgba(243,120,145,0.28)';
-    [-1, 1].forEach(sgn => { ctx.beginPath(); ctx.ellipse(hx + sgn * r * 0.66, hy + r * 0.4, r * 0.22, r * 0.14, 0, 0, Math.PI * 2); ctx.fill(); });
-
-    // oogjes: groot, laag in het gezicht, met een lachend bovenooglid
+    // oogjes: groot, laag in het gezicht, dicht bij elkaar; de kijkrichting schuift beide oogjes dezelfde kant op
     const sleeping = this.state === 'sleeping';
-    const ex = r * 0.42 + f.x * r * 0.04, ey = hy + r * 0.06 + f.y * r * 0.05;
+    const ex = r * (0.36 + (seeded(this.seed + 5) - 0.5) * 0.04), eyeShift = f.x * r * 0.05;
+    const ey = hy + r * 0.06 + f.y * r * 0.05;
     const blink = sleeping ? 1 : a.blink;
     const openness = sleeping ? 0 : clamp(1 - Math.sin(blink * Math.PI) * 1.2, 0.05, 1);
     if (openness < 0.12) {
       ctx.strokeStyle = rgba(headDark, 0.9); ctx.lineWidth = r * 0.085; ctx.lineCap = 'round';
       [-1, 1].forEach(sgn => {
         ctx.beginPath();
-        ctx.arc(hx + sgn * ex, ey + r * 0.1, r * 0.18, Math.PI * 1.15, Math.PI * 1.85);
+        ctx.arc(hx + sgn * ex + eyeShift, ey + r * 0.1, r * 0.18, Math.PI * 1.15, Math.PI * 1.85);
         ctx.stroke();
       });
     } else {
       const er = r * 0.23 * (1 + a.lift * 0.1);
       const gaze = { x: f.x * r * 0.03 + clamp(this.vel.x * 0.00005, -0.03, 0.03) * r, y: f.y * r * 0.03 };
       [-1, 1].forEach(sgn => {
-        const cx = hx + sgn * ex, cy = ey;
+        const cx = hx + sgn * ex + eyeShift, cy = ey;
         const eh = er * openness;
         ctx.save();
         ctx.beginPath(); ctx.ellipse(cx, cy, er, eh, 0, 0, Math.PI * 2); ctx.clip();
